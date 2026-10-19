@@ -8,7 +8,7 @@
 // install: stock is restored from the local snapshot, the patch is a fast text
 // apply. node_modules is put back on patched afterwards.
 //
-//   PROTOWIKI_BASE=/protowiki/pr-preview/pr-7/ npm run build:variants
+//   PROTOWIKI_BASE=/protowiki/pr-preview/pr-7/ npm run build
 
 import fs from 'node:fs'
 import path from 'node:path'

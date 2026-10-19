@@ -6,7 +6,9 @@ import { defineConfig } from 'vite'
 import VueRouter from 'unplugin-vue-router/vite'
 import vue from '@vitejs/plugin-vue'
 
+import { readCodexBuildInfo } from './scripts/lib-codex-build-info.mjs'
 import { reconcileCodexInstall } from './scripts/reconcile-codex-install.mjs'
+import { protowikiCodexDevSwitch } from './scripts/vite-plugin-codex-dev-switch.mjs'
 
 // GitHub Pages project sites need an absolute path prefix. Do not use './' here:
 // Vue Router's normalizeBase turns './' into '/.', so the current path never
@@ -23,40 +25,6 @@ const ghPagesPreview404Script = readFileSync(
   'utf8',
 )
 
-// Written by scripts/lib-codex-state.mjs only while patched files are installed.
-const codexPatchMarker = new URL(
-  './node_modules/@wikimedia/codex/.protowiki-codex-patch.json',
-  import.meta.url,
-)
-
-function readCodexBuildInfo() {
-  const codexPatch = existsSync(codexPatchMarker)
-    ? JSON.parse(readFileSync(codexPatchMarker, 'utf8'))
-    : null
-  const codexVersion: string = JSON.parse(
-    readFileSync(new URL('./node_modules/@wikimedia/codex/package.json', import.meta.url), 'utf8'),
-  ).version
-
-  const codexVariants = JSON.parse(process.env.PROTOWIKI_CODEX_VARIANTS ?? '[]')
-
-  const codexBuild = {
-    codexVersion,
-    patch: codexPatch && {
-      change: codexPatch.change ? String(codexPatch.change) : null,
-      patchset: codexPatch.patchset ?? null,
-      subject: codexPatch.subject ?? null,
-      url: codexPatch.url ?? null,
-    },
-    variant: codexPatch ? 'patched' : 'stock',
-    variants: codexVariants,
-  }
-
-  return {
-    codexPatch,
-    codexBuild,
-  }
-}
-
 const isVariantSubpathBuild = process.env.PROTOWIKI_CODEX_VARIANT_SUBPATH === '1'
 
 export default defineConfig(async ({ command, isPreview }) => {
@@ -65,7 +33,8 @@ export default defineConfig(async ({ command, isPreview }) => {
     console.log('[codex] reconciled node_modules with patches/codex/')
   }
 
-  const { codexPatch, codexBuild } = readCodexBuildInfo()
+  const isDevServer = command === 'serve'
+  const { codexPatch, codexBuild } = readCodexBuildInfo({ isDevServer })
 
   return {
     base: command === 'build' || isPreview ? buildBase : '/',
@@ -87,6 +56,7 @@ export default defineConfig(async ({ command, isPreview }) => {
         dts: 'src/typed-router.d.ts',
       }),
       vue(),
+      ...(isDevServer ? [protowikiCodexDevSwitch()] : []),
       {
         name: 'protowiki-gh-pages-restore',
         apply: 'build',
@@ -126,9 +96,7 @@ export default defineConfig(async ({ command, isPreview }) => {
           const preamble = `<script>${ghPagesPreview404Script}</script>`
           writeFileSync(
             fallback,
-            html.includes('<head>')
-              ? html.replace('<head>', `<head>${preamble}`)
-              : preamble + html,
+            html.includes('<head>') ? html.replace('<head>', `<head>${preamble}`) : preamble + html,
           )
         },
       },

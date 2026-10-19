@@ -1,6 +1,6 @@
 ---
 name: protowiki-codex-patching
-description: Trial an unmerged Codex (Gerrit) change in ProtoWiki and build UI that follows it automatically — the single committed patch in patches/codex/ (pure Gerrit output from npm run codex:patch only), switching node_modules between stock and patched (npm run codex:use-stock / codex:use-patch), side-by-side stock/patched deploys and PR previews (npm run build:variants), the home-screen Codex patch message, the html[data-codex-patched] gate, and the rules for writing prototype CSS that inherits from Codex instead of copying it. Use when adding or switching a Codex patch, comparing stock vs patched, deploying a patch, debugging "the patch isn't showing up", or styling anything that should track Codex changes.
+description: Trial an unmerged Codex (Gerrit) change in ProtoWiki and build UI that follows it automatically — the single committed patch in patches/codex/ (pure Gerrit output from npm run codex:patch only), switching node_modules between stock and patched (npm run codex:use-stock / codex:use-patch), side-by-side stock/patched deploys via npm run build (patched root + codex/stock/), the home-screen Codex settings popover and patch message, the html[data-codex-patched] gate, and the rules for writing prototype CSS that inherits from Codex instead of copying it. Use when adding or switching a Codex patch, comparing stock vs patched, deploying a patch, debugging "the patch isn't showing up", or styling anything that should track Codex changes.
 ---
 
 # Codex patches in ProtoWiki
@@ -19,7 +19,7 @@ design, and nobody notices until someone compares side by side.
 
 ```
 patches/codex/
-  manifest.json   change, patchset, subject, hashes
+  manifest.json   change, patchset, subject, stackedChanges, hashes
   *.patch         one small diff per changed Codex file
 ```
 
@@ -44,12 +44,16 @@ patches/codex/
 | `npm run codex:use-patch` | Install the committed patch |
 | `npm run codex:patch -- <gerrit-url>` | Build a Gerrit change locally and write it to `patches/codex/`, replacing any previous patch |
 | `npm run codex:reset` | Delete the patch; everything goes back to stock |
-| `npm run build:variants` | One deploy with patched at the root and stock under `codex/stock/` |
+| `npm run build` | Patched at deploy root and stock under `codex/stock/` when a patch is committed; one stock build otherwise |
+| `npm run build:vite` | Single Vite bundle only (local debug; skips the stock sibling) |
 
 Switching is fast: stock is restored from a snapshot in
 `node_modules/.cache/protowiki-codex-stock/`, and applying the patch is a text
-pass. **Restart `npm run dev` after every switch.** Vite pre-bundles Codex and
-reads the marker only at startup. The scripts clear `node_modules/.vite` for you.
+pass. With a committed patch, **`npm run dev` exposes stock/patched toggle** on
+the home screen (Codex toolbar popover and patch message) via the dev-server
+switch endpoint — no manual restart. CLI `codex:use-stock` / `codex:use-patch`
+still works when the dev server is not running. The scripts clear
+`node_modules/.vite` when switching.
 
 Details: [making patches](references/making-patches.md) ·
 [deploying patches](references/deploying-patches.md).
@@ -109,8 +113,8 @@ npm run codex:use-stock   && npm run dev   # check, screenshot
 npm run codex:use-patch && npm run dev   # check, screenshot, compare
 ```
 
-Or deploy a preview (or run `npm run build:variants` + `npm run preview`) and
-open each build from the Codex patch message on the home screen (stock lives under
+Or deploy a preview (or run `npm run build` + `npm run preview`) and switch
+stock/patched from the Codex settings popover on the home screen (stock lives under
 `codex/stock/`).
 
 ## Pitfalls (each has bitten us)

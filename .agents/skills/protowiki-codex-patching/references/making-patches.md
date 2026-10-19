@@ -20,20 +20,24 @@ npm run codex:patch 1304941   # change number works too ( -- optional for bare n
 The command:
 
 1. Puts `node_modules` on stock Codex (snapshot restore, or a reinstall).
-2. Fetches the change's current patchset into a cache checkout
+2. Fetches Gerrit **submitted together** for that change and records
+   `stackedChanges` / `stackedChangeCount` in `manifest.json` (sorted by change
+   number). The Codex settings toggle shows the anchor subject and, when
+   `stackedChangeCount > 0`, a description like `+9 stacked changes`.
+3. Fetches the change's current patchset into a cache checkout
    (`$TMPDIR/protowiki-codex-gerrit-cache`, reused across runs).
-3. Resolves the baseline: the release tag of the **installed** Codex
+4. Resolves the baseline: the release tag of the **installed** Codex
    (e.g. `v2.7.0`), so the diff spans published → change and applies to the npm
    artifact CI installs, even when the change is stacked on unreleased main.
-4. Builds Codex twice locally (release tag, then change). This is the slow part,
+5. Builds Codex twice locally (release tag, then change). This is the slow part,
    and the only place Codex is ever built.
-5. Finds every distributed file (`dist/**` plus root `theme-*` token files)
+6. Finds every distributed file (`dist/**` plus root `theme-*` token files)
    that differs between the two builds. The footprint is detected, not a fixed
    list, so any current or future import sees the change.
-6. For each file: formats published / unpatched / patched with the committed
+7. For each file: formats published / unpatched / patched with the committed
    Prettier config, 3-way merges, and diffs `format(published)` → merged.
    Formatting makes the minified single-line CSS diff by content, not file size.
-7. Replaces the contents of `patches/codex/`, then applies the patch locally the
+8. Replaces the contents of `patches/codex/`, then applies the patch locally the
    same way CI does.
 
 Commit `patches/codex/`. The next pull request preview and (after merge)

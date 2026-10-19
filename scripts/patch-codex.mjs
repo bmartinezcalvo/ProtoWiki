@@ -82,6 +82,24 @@ async function fetchJson(url) {
   return JSON.parse(stripXssiPrefix(await response.text()))
 }
 
+/** Gerrit changes submitted together with this one, sorted by change number. */
+async function fetchSubmittedTogether(changeNumber) {
+  const url = `https://gerrit.wikimedia.org/r/changes/design%2Fcodex~${changeNumber}/submitted_together`
+  const changes = await fetchJson(url)
+  if (!Array.isArray(changes)) {
+    throw new Error('Gerrit submitted_together response was not an array.')
+  }
+  const sorted = [...changes].sort((a, b) => a._number - b._number)
+  return sorted.map((entry) => {
+    const number = String(entry._number)
+    return {
+      change: number,
+      subject: entry.subject ?? '',
+      url: `https://gerrit.wikimedia.org/r/c/design/codex/+/${number}`,
+    }
+  })
+}
+
 function computePatchRef(changeNumber, patchsetNumber) {
   const twoDigit = changeNumber.slice(-2).padStart(2, '0')
   return `refs/changes/${twoDigit}/${changeNumber}/${patchsetNumber}`
@@ -265,6 +283,11 @@ async function makePatch(changeInput) {
   console.log(`Fetching Gerrit change ${changeNumber}`)
   const detailUrl = `https://gerrit.wikimedia.org/r/changes/design%2Fcodex~${changeNumber}/detail`
   const detail = await fetchJson(detailUrl)
+  const stackedChanges = await fetchSubmittedTogether(changeNumber)
+  const stackedChangeCount = Math.max(0, stackedChanges.length - 1)
+  if (stackedChangeCount > 0) {
+    console.log(`Submitted together: ${stackedChanges.length} change(s) (+${stackedChangeCount} stacked)`)
+  }
   const patchset = detail.current_revision_number
   if (!patchset) {
     throw new Error('Gerrit response did not include current_revision_number')
@@ -375,6 +398,8 @@ async function makePatch(changeInput) {
     patchset,
     revision: changeSha,
     baseline: baselineSha,
+    stackedChanges,
+    stackedChangeCount,
     generatedAt: new Date().toISOString(),
     codexVersions: versions,
     prettierVersion: prettierVersion(prettier),

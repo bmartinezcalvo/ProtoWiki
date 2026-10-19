@@ -9,10 +9,20 @@ interface CodexBuildVariant {
   id: 'patched' | 'stock'
   label: string
   base: string
-  /** Gerrit subject; set on the patched variant when build:variants runs. */
+  /** Gerrit subject; set on the patched variant when npm run build runs with a patch. */
   patchSubject?: string | null
   /** Gerrit change id; fallback label when subject is missing. */
   patchChange?: string | null
+  /** Local dev: switch via POST /__protowiki/codex/switch instead of sibling URL. */
+  devSwitch?: boolean
+}
+
+/** Gerrit metadata from patches/codex/manifest.json when a patch is committed. */
+interface CodexCommittedPatch {
+  change: string | null
+  subject: string | null
+  url: string | null
+  stackedChangeCount?: number
 }
 
 /** What Codex this bundle was built with, plus the other variants deployed alongside it. */
@@ -24,6 +34,8 @@ interface CodexBuildInfo {
     subject: string | null
     url: string | null
   } | null
+  /** Present when patches/codex/ holds a patch, even if this bundle runs stock Codex. */
+  availablePatch: CodexCommittedPatch | null
   variant: 'patched' | 'stock'
   variants: CodexBuildVariant[]
 }
