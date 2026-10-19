@@ -157,6 +157,8 @@ export function buildRun(block: Element, ctx: DocContext): ContentRun {
       } else if (child.nodeType === 1) {
         const el = child as Element
         if (el.tagName === 'LINK' || el.tagName === 'META' || el.tagName === 'STYLE') continue
+        // Editor chrome inside the surface (template chips, ↵ markers) isn't content.
+        if (el.hasAttribute('data-ve-ui')) continue
         if (BLOCK_TAGS.has(el.tagName)) continue
         if (isOpaqueElement(el, ctx)) {
           inlineNodes.push({ el, start: text.length })

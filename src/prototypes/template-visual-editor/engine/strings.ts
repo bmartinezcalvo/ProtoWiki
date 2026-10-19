@@ -176,6 +176,51 @@ export const CHECK_STRINGS = {
   },
 } as const
 
+/** Experimental checks (hard-coded English in their check classes unless a key is given). */
+export const EXPERIMENTAL_STRINGS = {
+  // editcheck-experimental-subheading-suggestion / -check
+  subheadingSuggestion: 'Experimental suggestion for testing',
+  subheadingCheck: 'Experimental edit check for testing',
+  fakeHeading: {
+    title: 'Use real headings',
+    description: 'Real headings should be used, not bold text.',
+    fix: 'Adjust heading',
+  },
+  leadLength: {
+    // editcheck-leadlength-title / -description / -thank
+    title: 'Improve readability',
+    description: `This section is longer than ${link('//en.wikipedia.org/wiki/Wikipedia:Manual_of_Style/Lead_section#Length', 'Wikipedia guidelines')} recommend. Consider making it shorter by doing things like moving information into other sections or replacing long phrases with simpler ones.`,
+    thanks: 'Thank you for considering the length of the lead section!',
+    declineOptions: [
+      { value: 'appropriate', label: 'The length is appropriate for this article' },
+      { value: 'uncertain', label: "I'm not sure how to make it shorter" },
+      { value: 'other', label: 'Other' },
+    ],
+  },
+  redirect: {
+    title: 'Link to the final page',
+    description: 'This link points to a redirect page. Link to the final page instead.',
+    fix: 'Update link',
+  },
+  requiredTemplateParam: {
+    title: 'Template has missing parameters',
+    description: 'The template is missing some required parameters.',
+    edit: 'Edit',
+  },
+  llmSuggestion: {
+    prompt: 'Do you think this suggestion is valid?',
+    footer: `Identified using an ${link('//www.mediawiki.org/wiki/VisualEditor/Suggestion_Mode/Model-generated_editing_suggestions#Research_findings', 'open-weight language model')}`,
+    valid: "Yes, it's valid",
+    invalid: "No, it's not valid",
+    invalidDescription: 'Please help developers understand why you think this suggestion is invalid',
+    invalidOptions: [
+      { value: 'mislabeled', label: 'There is an issue in the text, but the type of issue is mislabeled' },
+      { value: 'unhelpful', label: 'There is an issue in the text, but the suggestion is not helpful' },
+      { value: 'other', label: 'None of the above applies' },
+    ],
+  },
+} as const
+
 /** editcheck-textmatch-replace */
 export function textMatchReplacePrompt(from: string, to: string): string {
   return `Replace "${from}" with "${to}"?`

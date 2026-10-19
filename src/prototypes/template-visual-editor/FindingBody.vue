@@ -35,7 +35,7 @@ watch(
 )
 
 const choices = computed(() => {
-  if (props.finding.type === 'tone' && props.finding.revising) {
+  if ((props.finding.type === 'tone' || props.finding.type === 'leadLength') && props.finding.revising) {
     return [
       { action: 'recheck' as const, label: STR.recheck, flags: ['primary', 'progressive'] as const },
       { action: 'dismiss' as const, label: STR.decline },

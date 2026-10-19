@@ -85,6 +85,41 @@ export function setHeadingLevel(heading: Element, level: number): Element {
   return replacement
 }
 
+/** fakeHeading "Adjust heading": bold paragraph → heading (level ≥ 3). */
+export function paragraphToHeading(paragraph: Element, level: number): Element {
+  paragraph.querySelectorAll('b, strong').forEach((b) => unwrap(b))
+  return setHeadingLevel(paragraph, level)
+}
+
+/** Nearest preceding heading level, for fakeHeading. */
+export function precedingHeadingLevel(el: Element): number | null {
+  const doc = el.ownerDocument
+  const walker = doc.createTreeWalker(el.closest('.mw-parser-output') ?? doc.body, NodeFilter.SHOW_ELEMENT)
+  let level: number | null = null
+  for (let node = walker.nextNode() as Element | null; node && node !== el; node = walker.nextNode() as Element | null) {
+    const m = /^H([1-6])$/.exec(node.tagName)
+    if (m) level = Number(m[1])
+  }
+  return level
+}
+
+/** requiredTemplateParam: write the filled parameters back into `data-mw`. */
+export function setTemplateParams(transclusion: Element, values: Record<string, string>, missing: { name: string; partIndex: number }[]) {
+  try {
+    const mw = JSON.parse(transclusion.getAttribute('data-mw') ?? '{}')
+    for (const m of missing) {
+      const value = values[`${m.partIndex}:${m.name}`]
+      if (!value) continue
+      const template = mw.parts?.[m.partIndex]?.template
+      if (!template) continue
+      template.params = { ...(template.params ?? {}), [m.name]: { wt: value } }
+    }
+    transclusion.setAttribute('data-mw', JSON.stringify(mw))
+  } catch {
+    /* malformed data-mw */
+  }
+}
+
 export function setImageCaption(figure: Element, caption: string) {
   let figcaption = figure.querySelector(':scope > figcaption')
   if (!figcaption) {

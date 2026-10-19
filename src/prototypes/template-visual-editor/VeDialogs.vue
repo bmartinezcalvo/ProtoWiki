@@ -11,13 +11,15 @@ import type { MenuItemData } from '@wikimedia/codex'
 
 import { wikimediaApiFetchHeaders } from '@/config'
 
-export type VeDialogKind = 'citation' | 'link' | 'caption'
+export type VeDialogKind = 'citation' | 'link' | 'caption' | 'template'
 
 const props = defineProps<{
   kind: VeDialogKind | null
   host: string
   /** Prefill (link title / reference URL). */
   initial?: string
+  /** Template dialog: the required parameters to fill (`key` → label). */
+  fields?: { key: string; label: string }[]
 }>()
 
 const emit = defineEmits<{
@@ -37,6 +39,7 @@ const caption = ref('')
 const linkSelected = ref<string | null>(null)
 const linkInput = ref('')
 const linkItems = ref<MenuItemData[]>([])
+const templateValues = ref<Record<string, string>>({})
 
 watch(
   () => props.kind,
@@ -46,6 +49,7 @@ watch(
     linkSelected.value = null
     linkInput.value = kind === 'link' ? (props.initial ?? '') : ''
     linkItems.value = []
+    templateValues.value = {}
     if (kind === 'link' && linkInput.value) void searchTitles(linkInput.value)
   },
 )
@@ -79,7 +83,13 @@ async function searchTitles(query: string) {
 }
 
 const title = computed(() =>
-  props.kind === 'citation' ? 'Add a citation' : props.kind === 'link' ? 'Link' : 'Media settings',
+  props.kind === 'citation'
+    ? 'Add a citation'
+    : props.kind === 'link'
+      ? 'Link'
+      : props.kind === 'template'
+        ? 'Template'
+        : 'Media settings',
 )
 
 const value = computed(() =>
@@ -87,11 +97,15 @@ const value = computed(() =>
     ? citation.value.trim()
     : props.kind === 'link'
       ? (linkSelected.value ?? linkInput.value).trim()
-      : caption.value.trim(),
+      : props.kind === 'template'
+        ? Object.values(templateValues.value).some((v) => v.trim())
+          ? JSON.stringify(templateValues.value)
+          : ''
+        : caption.value.trim(),
 )
 
 const primaryAction = computed(() => ({
-  label: props.kind === 'citation' ? 'Insert' : props.kind === 'link' ? 'Done' : 'Apply changes',
+  label: props.kind === 'citation' ? 'Insert' : props.kind === 'link' || props.kind === 'template' ? 'Done' : 'Apply changes',
   actionType: 'progressive' as const,
   disabled: !value.value,
 }))
@@ -126,6 +140,14 @@ function onPrimary() {
         @input="searchTitles"
       />
     </CdxField>
+
+    <template v-else-if="kind === 'template'">
+      <CdxField v-for="field in fields ?? []" :key="field.key">
+        <template #label>{{ field.label }}</template>
+        <template #help-text>Required parameter</template>
+        <CdxTextInput v-model="templateValues[field.key]" />
+      </CdxField>
+    </template>
 
     <CdxField v-else-if="kind === 'caption'">
       <template #label>Caption</template>

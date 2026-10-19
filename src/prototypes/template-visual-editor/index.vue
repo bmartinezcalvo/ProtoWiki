@@ -12,7 +12,7 @@ definePage({
   },
 })
 
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { CdxButton, CdxIcon, CdxMessage, CdxProgressBar, CdxToast } from '@wikimedia/codex'
 import { cdxIconDownTriangle, cdxIconUserAvatar, cdxIconUserAvatarOutline } from '@wikimedia/codex-icons'
 
@@ -40,7 +40,10 @@ const { article, loading, error, count, load, loadTitle } = useSuggestionArticle
   const root = doc.querySelector('.mw-parser-output')!
   const enabled = (list: { type: string }[]) =>
     list.filter((f) => suggestionSettings.types[f.type as keyof typeof suggestionSettings.types] !== false).length
-  const options = { experiencedEditor: suggestionSettings.editCount === 'experienced' }
+  const options = {
+    experiencedEditor: suggestionSettings.editCount === 'experienced',
+    atLeast25Edits: suggestionSettings.editCount !== 'new',
+  }
   // Rule-based detectors first; the API-based ones only if that isn't enough.
   const quick = enabled(await detectSuggestions(root, page, { ...options, syncOnly: true }))
   if (quick >= min) return quick
@@ -63,6 +66,9 @@ provideChromeSearchHandlers({
 
 const editing = ref(false)
 const editKey = ref(0)
+/** Section the editor was opened from (`data-mw-section-id`), or null for the whole page. */
+const editSection = ref<string | null>(null)
+const readerRef = ref<{ $el: HTMLElement } | null>(null)
 const sidebarOpen = ref(false)
 const detectedCount = ref<number | null>(null)
 const publishedToast = ref(0)
@@ -74,12 +80,69 @@ const page = computed(() =>
   article.value ? { title: article.value.title, lang: article.value.lang, host: article.value.host } : null,
 )
 
-function startEditing() {
+function startEditing(section: string | null = null) {
   if (!article.value || editing.value) return
+  editSection.value = section
   editKey.value++
   editing.value = true
-  window.scrollTo({ top: 0 })
+  // Desktop keeps the reader's place (the editor then scrolls to the section);
+  // Minerva's editor opens at the top.
+  if (isMobile.value) window.scrollTo({ top: 0 })
 }
+
+/**
+ * Read mode section edit links. Desktop gets Vector's `[edit]` after each
+ * section heading; Minerva's renderer already draws a pencil per section.
+ */
+function decorateSections() {
+  const root = readerRef.value?.$el
+  if (!root || isMobile.value) return
+  root.querySelectorAll<HTMLElement>('section[data-mw-section-id] > :is(h2, h3, h4, h5, h6)').forEach((heading) => {
+    const id = heading.parentElement?.getAttribute('data-mw-section-id')
+    if (!id || Number(id) <= 0 || heading.querySelector('.mw-editsection')) return
+    const wrap = document.createElement('span')
+    wrap.className = 'mw-editsection'
+    wrap.innerHTML =
+      '<span class="mw-editsection-bracket">[</span><a href="#" class="ve-section-edit"></a><span class="mw-editsection-bracket">]</span>'
+    const link = wrap.querySelector('a')!
+    link.textContent = 'edit'
+    link.title = `Edit section: ${heading.textContent?.trim() ?? ''}`
+    link.dataset.section = id
+    heading.appendChild(wrap)
+  })
+}
+
+function onReaderClick(e: MouseEvent) {
+  const target = e.target as Element | null
+  const trigger = target?.closest('.ve-section-edit, .protowiki-mobile-h2__edit')
+  if (!trigger) return
+  const section =
+    (trigger as HTMLElement).dataset.section ?? trigger.closest('section[data-mw-section-id]')?.getAttribute('data-mw-section-id')
+  if (!section) return
+  e.preventDefault()
+  e.stopPropagation()
+  startEditing(Number(section) > 0 ? section : null)
+}
+
+let listeningOn: HTMLElement | null = null
+watch(
+  () => [readerRef.value?.$el, html.value, skin.value, editing.value] as const,
+  async () => {
+    await nextTick()
+    // Minerva's heading enhancements run after the renderer's own nextTick.
+    setTimeout(() => {
+      const root = readerRef.value?.$el ?? null
+      if (root !== listeningOn) {
+        listeningOn?.removeEventListener('click', onReaderClick, true)
+        root?.addEventListener('click', onReaderClick, true)
+        listeningOn = root
+      }
+      decorateSections()
+    }, 0)
+  },
+  { flush: 'post' },
+)
+onBeforeUnmount(() => listeningOn?.removeEventListener('click', onReaderClick, true))
 
 function stopEditing() {
   editing.value = false
@@ -89,7 +152,7 @@ function stopEditing() {
 function onEditClick() {
   // The Edit tab toggles back to reading, as in the original prototype.
   if (editing.value) stopEditing()
-  else startEditing()
+  else startEditing(null)
 }
 
 function onPublished(newHtml: string) {
@@ -162,12 +225,13 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
             :html="html"
             :skin="skin"
             :page="page"
+            :section="editSection"
             @exit="stopEditing"
             @published="onPublished"
             @sidebar="(open) => (sidebarOpen = open)"
             @detected="(n) => (detectedCount = n)"
           />
-          <ArticleRenderer v-else :key="`${article.title}-${publishedToast}`">
+          <ArticleRenderer v-else ref="readerRef" :key="`${article.title}-${publishedToast}`">
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div v-html="html" />
           </ArticleRenderer>
@@ -182,10 +246,17 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
 </template>
 
 <style scoped>
-/* Desktop: the sidebar takes extra room, so the article column widens (32 + article + 24 + 325 + 32). */
+/*
+ * Desktop with suggestions: the article column (title, tabs, toolbar, content)
+ * keeps its reading width and moves left; the 325px sidebar sits outside it,
+ * 24px to the right.
+ */
 .ve-page--sidebar :deep(.article[data-skin='desktop']) {
-  max-width: none;
-  padding-inline: 32px;
+  --ve-sidebar-room: calc(325px + 24px);
+  max-width: min(calc(984px + 2 * var(--spacing-100, 16px)), calc(100% - var(--ve-sidebar-room) - 32px));
+  margin-inline-start: max(16px, calc((100% - (984px + 2 * var(--spacing-100, 16px)) - var(--ve-sidebar-room)) / 2));
+  margin-inline-end: auto;
+  transition: margin 250ms ease;
 }
 
 .ve-page__loading {
@@ -194,14 +265,45 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
   font-size: var(--font-size-small, 14px);
 }
 
-/* Minerva edit mode: the page actions toolbar gives way to the editor toolbar. */
-.ve-page--editing[data-skin='mobile'] :deep(.article-header__icon-toolbar),
-.ve-page--editing[data-skin='mobile'] :deep(.article-header__toolbar) {
+/* Vector's section edit links: "[edit]" after each heading. */
+.ve-page :deep(.mw-editsection) {
+  margin-inline-start: 13px;
+  font-family: var(--font-family-base, sans-serif);
+  font-size: 0.8125rem;
+  font-weight: var(--font-weight-normal, 400);
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: baseline;
+  unicode-bidi: isolate;
+}
+
+.ve-page :deep(.mw-editsection-bracket) {
+  color: var(--color-base, #202122);
+}
+
+.ve-page :deep(.mw-editsection a) {
+  color: var(--color-progressive, #36c);
+  text-decoration: none;
+}
+
+.ve-page :deep(.mw-editsection a:hover) {
+  text-decoration: underline;
+}
+
+/* Minerva edit mode: like production, no page title or page actions — just the editor. */
+.ve-page--editing[data-skin='mobile'] :deep(.article-header) {
   display: none;
 }
 
-/* Clear the fixed 48px editor toolbar. */
+/* Clear the fixed 48px editor toolbar; wide tables scroll inside the article, not the page. */
 .ve-page--editing[data-skin='mobile'] :deep(.article) {
-  padding-top: calc(48px + var(--spacing-100, 16px));
+  padding-top: 48px;
+  overflow-x: clip;
+}
+
+.ve-page--editing[data-skin='mobile'] :deep(.ve-editor__surface table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 </style>

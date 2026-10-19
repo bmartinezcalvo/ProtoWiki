@@ -5,11 +5,10 @@
  * becomes the "Before publishing" toolbar (`EditCheckPreSaveToolbarTools.js`):
  * Back · title · disabled Publish.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { CdxIcon, CdxToggleButton } from '@wikimedia/codex'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { CdxIcon, CdxProgressIndicator, CdxToggleButton } from '@wikimedia/codex'
 import {
   cdxIconAdd,
-  cdxIconAlert,
   cdxIconBold,
   cdxIconCheck,
   cdxIconClose,
@@ -52,6 +51,8 @@ const props = defineProps<{
   canRedo: boolean
   canPublish: boolean
   review: boolean
+  /** Editor still loading: progress bar (Vector) / "Loading editor…" (Minerva). */
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -72,6 +73,40 @@ const toggleModel = computed({
 /** editcheck-toolbar-suggestions-count: {{PLURAL:$1|$1|100=99+}} */
 const badgeLabel = computed(() => (props.count >= 100 ? '99+' : String(props.count)))
 const showBadge = computed(() => props.count > 0 || props.suggestionsOn)
+
+/**
+ * Desktop loading bar (`ve.init.mw.ProgressBarWidget`): fills 30% → 70% → 100%
+ * as the editor loads (production times are 3 s / 2 s / 1 s; shortened here).
+ */
+const progress = ref(0)
+const progressDuration = ref(0)
+let progressTimers: ReturnType<typeof setTimeout>[] = []
+function startProgress() {
+  progressTimers.forEach(clearTimeout)
+  progress.value = 0
+  progressDuration.value = 0
+  progressTimers = [
+    setTimeout(() => {
+      progressDuration.value = 600
+      progress.value = 30
+    }, 20),
+    setTimeout(() => {
+      progressDuration.value = 400
+      progress.value = 70
+    }, 600),
+    setTimeout(() => {
+      progressDuration.value = 200
+      progress.value = 100
+    }, 900),
+  ]
+}
+watch(
+  () => props.loading,
+  (loading) => {
+    if (loading) startProgress()
+  },
+  { immediate: true },
+)
 
 const scrolled = ref(false)
 function onScroll() {
@@ -128,13 +163,30 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll, true)
   document.removeEventListener('click', onDocumentClick)
+  progressTimers.forEach(clearTimeout)
 })
 </script>
 
 <template>
+  <!-- Loading -->
+  <div v-if="loading && skin === 'desktop'" class="ve-toolbar ve-toolbar--loading" data-skin="desktop">
+    <div class="ve-progress" role="progressbar" aria-label="Loading editor" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
+      <div class="ve-progress__bar" :style="{ width: `${progress}%`, transitionDuration: `${progressDuration}ms` }" />
+    </div>
+  </div>
+  <div v-else-if="loading" class="ve-toolbar ve-toolbar--loading ve-toolbar--slide-in" data-skin="mobile">
+    <button class="ve-toolbar__btn ve-toolbar__btn--fixed ve-toolbar__btn--close" aria-label="Close" @click="emit('close')">
+      <CdxIcon :icon="cdxIconClose" />
+    </button>
+    <div class="ve-toolbar__loading-label">
+      <CdxProgressIndicator class="ve-toolbar__spinner" aria-hidden="true" />
+      <span>Loading editor…</span>
+    </div>
+  </div>
+
   <!-- Before publishing (pre-save review) -->
   <div
-    v-if="review"
+    v-else-if="review"
     class="ve-toolbar ve-toolbar--review"
     :data-skin="skin"
     :class="{ 've-toolbar--scrolled': scrolled }"
@@ -164,7 +216,7 @@ onBeforeUnmount(() => {
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Redo" :disabled="!canRedo" @click="emit('redo')">
         <CdxIcon :icon="cdxIconRedo" />
       </button>
-      <button class="ve-toolbar__btn ve-toolbar__btn--dropdown">
+      <button class="ve-toolbar__btn ve-toolbar__btn--dropdown ve-toolbar__btn--format">
         <span>Paragraph</span>
         <CdxIcon :icon="cdxIconExpand" size="small" />
       </button>
@@ -210,9 +262,6 @@ onBeforeUnmount(() => {
       </CdxToggleButton>
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Help">
         <CdxIcon :icon="cdxIconHelp" />
-      </button>
-      <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Notices">
-        <CdxIcon :icon="cdxIconAlert" />
       </button>
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Page options">
         <CdxIcon :icon="cdxIconMenu" />
@@ -418,6 +467,12 @@ onBeforeUnmount(() => {
   gap: 2px;
 }
 
+/* Format dropdown: fixed width, caret on the right (as in production). */
+.ve-toolbar__btn--format {
+  min-width: 110px;
+  justify-content: space-between;
+}
+
 .ve-toolbar__primary {
   display: flex;
   align-items: center;
@@ -448,6 +503,65 @@ onBeforeUnmount(() => {
 
 .ve-toolbar__primary .cdx-icon {
   color: inherit;
+}
+
+/* Loading */
+.ve-toolbar--loading[data-skin='desktop'] {
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+
+/* ProgressBarWidget: centred, 50% of the toolbar, 0.875em tall, blue outline. */
+.ve-progress {
+  width: 50%;
+  height: 0.875em;
+  box-sizing: border-box;
+  border: 1px solid var(--border-color-progressive, #36c);
+  border-radius: 0.875em;
+  background: var(--background-color-base, #fff);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.ve-progress__bar {
+  height: 100%;
+  width: 0;
+  background: var(--background-color-progressive, #36c);
+  transition-property: width;
+  transition-timing-function: ease-in;
+}
+
+/* MobileFrontend fake toolbar slides down. */
+.ve-toolbar--slide-in {
+  animation: ve-toolbar-slide-in 250ms ease;
+}
+
+@keyframes ve-toolbar-slide-in {
+  from {
+    transform: translate(-50%, -100%);
+  }
+  to {
+    transform: translate(-50%, 0);
+  }
+}
+
+.ve-toolbar--loading[data-skin='mobile'] {
+  justify-content: flex-start;
+}
+
+.ve-toolbar__loading-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 16px;
+  font-size: var(--font-size-medium, 16px);
+  color: var(--color-base, #202122);
+}
+
+.ve-toolbar__spinner {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
 }
 
 /* Review (Before publishing) */

@@ -34,11 +34,13 @@ import {
   fetchDisambiguationTitles,
   fetchInterwikiPatterns,
   fetchLinkRecommendations,
+  fetchLlmSuggestions,
+  fetchTemplateData,
   normalizeTemplateTitle,
   predictTone,
   TONE_LANGUAGES,
 } from './api'
-import { CHECK_STRINGS as S, STR, textMatchReplacePrompt } from './strings'
+import { CHECK_STRINGS as S, EXPERIMENTAL_STRINGS as X, STR } from './strings'
 
 /** Suggestion types the settings can filter on (one per card title family). */
 export const SUGGESTION_TYPES = [
@@ -58,6 +60,12 @@ export const SUGGESTION_TYPES = [
   { id: 'textMatch-potential-LLM', label: 'Potential LLM content' },
   { id: 'tone', label: 'Revise Tone?' },
   { id: 'yearLink', label: 'Fix year link' },
+  // Experimental (shown in experimental mode, `?ecenable=suggestions,experimental`)
+  { id: 'fakeHeading', label: 'Use real headings (experimental)' },
+  { id: 'leadLength', label: 'Improve readability (experimental)' },
+  { id: 'redirect', label: 'Link to the final page (experimental)' },
+  { id: 'requiredTemplateParam', label: 'Template has missing parameters (experimental)' },
+  { id: 'llmSuggestion', label: 'Model sourced suggestions (experimental)' },
 ] as const
 
 export type SuggestionTypeId = (typeof SUGGESTION_TYPES)[number]['id']
@@ -74,6 +82,8 @@ export type ChoiceAction =
   | 'useTarget'
   | 'useLabel'
   | 'recheck'
+  | 'valid'
+  | 'invalid'
   | 'keep'
   | 'reject'
   | 'dismiss'
@@ -103,8 +113,10 @@ export interface Finding {
   element?: Element
   /** Per-check data for applying a fix. */
   data?: Record<string, any>
-  /** Tone: being revised (Recheck instead of Revise). */
+  /** Tone / lead length: being revised (Recheck instead of Revise). */
   revising?: boolean
+  /** Experimental check: dashed lightbulb + "Experimental suggestion for testing". */
+  experimental?: boolean
 }
 
 let counter = 0
@@ -813,11 +825,216 @@ export function detectYearLink(d: DetectContext): Finding[] {
   return out
 }
 
+// ── Experimental: fakeHeading ────────────────────────────────────────────────
+
+/** Every piece of content in the paragraph is bold (`getAnnotationsFromRange` contains bold). */
+function isAllBold(run: ContentRun): boolean {
+  if (!run.text.trim()) return false
+  const bold = (node: Node) => !!(node.nodeType === 1 ? (node as Element) : node.parentElement)?.closest('b, strong')
+  const insideBlock = (el: Element | null) => !!el && run.block.contains(el)
+  for (const seg of run.segments) {
+    const b = seg.node.parentElement?.closest('b, strong') ?? null
+    if (!bold(seg.node) || !insideBlock(b)) return false
+  }
+  return run.inlineNodes.every(({ el }) => insideBlock(el.closest('b, strong')))
+}
+
+export function detectFakeHeading(d: DetectContext): Finding[] {
+  const out: Finding[] = []
+  for (const info of d.blocks) {
+    if (!info.isTopLevelParagraph) continue
+    const run = d.runs.get(info.block)!
+    if (!isAllBold(run)) continue
+    out.push({
+      id: nextId('fakeHeading'),
+      type: 'fakeHeading',
+      mode: 'suggestion',
+      experimental: true,
+      title: X.fakeHeading.title,
+      descriptionHtml: X.fakeHeading.description,
+      choices: [{ action: 'fix', label: X.fakeHeading.fix }, DISMISS],
+      ranges: [contentsRange(info.block)],
+      data: { paragraph: info.block },
+    })
+  }
+  return out
+}
+
+// ── Experimental: leadLength ("Improve readability") ─────────────────────────
+
+const MAX_LEAD_WORDS = 400
+
+export function countWords(text: string): number {
+  const Segmenter = (Intl as any).Segmenter
+  if (Segmenter) {
+    let n = 0
+    for (const seg of new Segmenter('en', { granularity: 'word' }).segment(text)) if (seg.isWordLike) n++
+    return n
+  }
+  return text.split(/\s+/).filter(Boolean).length
+}
+
+/** Lead paragraphs: top-level `p` before the first heading (none if the page has no headings). */
+export function leadParagraphs(d: DetectContext): Element[] {
+  if (!d.blocks.some((b) => headingLevel(b.block) !== null)) return []
+  return d.blocks.filter((b) => b.isLead && b.isTopLevelParagraph).map((b) => b.block)
+}
+
+export function leadWordCount(d: DetectContext, paragraphs: Element[]): number {
+  return paragraphs.reduce((sum, p) => sum + countWords(buildRun(p, d.ctx).text.replace(/\uFFFC/g, '')), 0)
+}
+
+export function detectLeadLength(d: DetectContext): Finding[] {
+  if (d.isDisambiguationPage) return []
+  const paragraphs = leadParagraphs(d)
+  if (!paragraphs.length || leadWordCount(d, paragraphs) <= MAX_LEAD_WORDS) return []
+  const range = d.ctx.root.ownerDocument.createRange()
+  range.setStart(paragraphs[0], 0)
+  range.setEnd(paragraphs[paragraphs.length - 1], paragraphs[paragraphs.length - 1].childNodes.length)
+  return [
+    {
+      id: nextId('leadLength'),
+      type: 'leadLength',
+      mode: 'suggestion',
+      experimental: true,
+      title: X.leadLength.title,
+      descriptionHtml: X.leadLength.description,
+      choices: [
+        { action: 'edit', label: STR.revise },
+        { action: 'dismiss', label: STR.decline },
+      ],
+      ranges: [range],
+      data: { paragraphs },
+    },
+  ]
+}
+
+// ── Experimental: redirect ("Link to the final page") ────────────────────────
+
+export function detectRedirect(d: DetectContext): Finding[] {
+  const out: Finding[] = []
+  for (const info of d.blocks) {
+    if (!isInValidSection(info, {})) continue
+    for (const a of internalLinksIn(d.runs.get(info.block)!)) {
+      if (!a.classList.contains('mw-redirect')) continue
+      const parsed = parseWikiHref(a.getAttribute('href'))
+      if (!parsed) continue
+      // "Compact" links ([[USA]], [[USA]]s) aren't flagged — only piped ones.
+      const label = (a.textContent ?? '').trim()
+      const labelTitle = label.charAt(0).toUpperCase() + label.slice(1)
+      if (labelTitle.startsWith(parsed.title)) continue
+      out.push({
+        id: nextId('redirect'),
+        type: 'redirect',
+        mode: 'suggestion',
+        experimental: true,
+        title: X.redirect.title,
+        descriptionHtml: X.redirect.description,
+        choices: [{ action: 'fix', label: X.redirect.fix }, DISMISS],
+        ranges: [contentsRange(a)],
+        element: a,
+        data: { link: a, title: parsed.title },
+      })
+    }
+  }
+  return out
+}
+
+// ── Experimental: requiredTemplateParam ──────────────────────────────────────
+
+export async function detectRequiredTemplateParam(d: DetectContext): Promise<Finding[]> {
+  const groups: { el: Element; parts: { title: string; params: Record<string, any> }[] }[] = []
+  const seenAbout = new Set<string>()
+  d.ctx.root.querySelectorAll('[typeof~="mw:Transclusion"]').forEach((el) => {
+    if (isInReferenceList(el) || (el.parentElement && hasOpaqueAncestor(el.parentElement, d.ctx))) return
+    const about = el.getAttribute('about')
+    if (about) {
+      if (seenAbout.has(about)) return
+      seenAbout.add(about)
+    }
+    const parts = (readDataMw(el)?.parts ?? [])
+      .map((p: any) => p?.template)
+      .filter((t: any) => typeof t?.target?.href === 'string')
+      .map((t: any) => ({
+        title: `Template:${normalizeTemplateTitle(decodeURIComponent(t.target.href.replace(/^\.\//, '')))}`,
+        params: t.params ?? {},
+      }))
+    if (parts.length) groups.push({ el, parts })
+  })
+  if (!groups.length) return []
+  const specs = await fetchTemplateData(d.host, groups.flatMap((g) => g.parts.map((p) => p.title)))
+  const out: Finding[] = []
+  for (const group of groups) {
+    const missing: { template: string; name: string; partIndex: number }[] = []
+    group.parts.forEach((part, partIndex) => {
+      const spec = specs.get(part.title)
+      if (!spec) return
+      for (const [name, param] of Object.entries(spec)) {
+        if (param?.required && !String(part.params?.[name]?.wt ?? '').trim()) {
+          missing.push({ template: part.title, name, partIndex })
+        }
+      }
+    })
+    if (!missing.length) continue
+    out.push({
+      id: nextId('requiredTemplateParam'),
+      type: 'requiredTemplateParam',
+      mode: 'suggestion',
+      experimental: true,
+      title: X.requiredTemplateParam.title,
+      descriptionHtml: X.requiredTemplateParam.description,
+      choices: [{ action: 'edit', label: X.requiredTemplateParam.edit }, DISMISS],
+      ranges: [elementRange(group.el)],
+      element: group.el,
+      data: { transclusion: group.el, missing },
+    })
+  }
+  return out
+}
+
+// ── Experimental: llmSuggestion ──────────────────────────────────────────────
+
+export async function detectLlmSuggestion(d: DetectContext): Promise<Finding[]> {
+  const suggestions = await fetchLlmSuggestions(d.host, d.lang, d.title)
+  const out: Finding[] = []
+  for (const s of suggestions) {
+    if (!s.target) continue
+    for (const info of d.blocks) {
+      const run = d.runs.get(info.block)!
+      const i = run.text.indexOf(s.target)
+      if (i === -1) continue
+      const range = runRange(run, i, i + s.target.length)
+      if (!range) break
+      out.push({
+        id: nextId('llmSuggestion'),
+        type: 'llmSuggestion',
+        mode: 'suggestion',
+        experimental: true,
+        title: s.title ?? 'Model sourced suggestion',
+        descriptionHtml:
+          s.static_description ?? 'This suggestion comes from a model and should be verified before being followed',
+        promptHtml: X.llmSuggestion.prompt,
+        footerHtml: X.llmSuggestion.footer,
+        footerIcon: 'robot',
+        choices: [
+          { action: 'valid', label: X.llmSuggestion.valid },
+          { action: 'invalid', label: X.llmSuggestion.invalid },
+        ],
+        ranges: [range],
+      })
+      break
+    }
+  }
+  return out
+}
+
 // ── All suggestions ──────────────────────────────────────────────────────────
 
 export interface DetectOptions {
   /** `suggestedLink` needs ≥1000 edits (`minimumEditCount.suggestionMode`). */
   experiencedEditor: boolean
+  /** `leadLength` needs ≥25 edits. */
+  atLeast25Edits?: boolean
   /** Skip the slow, API-based detectors (used to count candidates while loading). */
   syncOnly?: boolean
 }
@@ -840,6 +1057,9 @@ export async function detectSuggestions(
     ...detectImageCaption(d),
     ...detectTextMatch(d),
     ...detectYearLink(d),
+    ...detectFakeHeading(d),
+    ...(options.atLeast25Edits !== false ? detectLeadLength(d) : []),
+    ...detectRedirect(d),
   ]
   let all = sync
   if (!options.syncOnly) {
@@ -848,6 +1068,8 @@ export async function detectSuggestions(
       detectExternalLink(d),
       options.experiencedEditor ? detectSuggestedLink(d) : Promise.resolve([]),
       detectTone(d),
+      detectRequiredTemplateParam(d),
+      detectLlmSuggestion(d),
     ])
     all = [...sync, ...asyncResults.flat()]
   }

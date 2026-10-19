@@ -19,6 +19,7 @@ import {
   cdxIconClose,
   cdxIconExpand,
   cdxIconLightbulb,
+  cdxIconLightbulbDashed,
   cdxIconSuccess,
 } from '@wikimedia/codex-icons'
 
@@ -26,7 +27,16 @@ import FindingBody from './FindingBody.vue'
 import VeDialogs, { type VeDialogKind } from './VeDialogs.vue'
 import VeToolbar from './VeToolbar.vue'
 import * as fix from './engine/actions'
-import { detectSuggestions, type ChoiceAction, type Finding } from './engine/checks'
+import {
+  detectSuggestions,
+  leadParagraphs,
+  leadWordCount,
+  prepare,
+  type ChoiceAction,
+  type Finding,
+} from './engine/checks'
+import { resolveRedirect } from './engine/api'
+import { addTemplateChips, stripTemplateChips } from './engine/templateChips'
 import {
   addReferenceChecks,
   categorizePaste,
@@ -41,6 +51,8 @@ const props = defineProps<{
   html: string
   skin: 'desktop' | 'mobile'
   page: { title: string; lang: string; host: string }
+  /** Opened from a section's edit link (`data-mw-section-id`). */
+  section?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -78,6 +90,8 @@ function cleanHtml(): string {
   const clone = surfaceRef.value!.cloneNode(true) as HTMLElement
   clone.querySelectorAll('[contenteditable]').forEach((el) => el.removeAttribute('contenteditable'))
   clone.querySelectorAll('.ve-review-focus').forEach((el) => el.classList.remove('ve-review-focus'))
+  clone.querySelectorAll('.ve-section-hidden').forEach((el) => el.classList.remove('ve-section-hidden'))
+  stripTemplateChips(clone)
   return clone.innerHTML
 }
 
@@ -112,13 +126,108 @@ function isLive(f: Finding): boolean {
   return f.ranges.some((r) => r.startContainer.isConnected && (!r.collapsed || !!f.element))
 }
 
+// ── Loading + section editing ────────────────────────────────────────────────
+
+/** "Loading editor…" (Minerva) / progress bar + faded article (Vector). */
+const loadingEditor = ref(true)
+/** Minerva section editing: only this section is shown until "Edit full page". */
+const sectionOnly = ref<string | null>(isMobile.value && props.section ? props.section : null)
+/** Bumped when sections are shown/hidden, so scope-dependent lists recompute. */
+const scopeVersion = ref(0)
+
+function isHidden(node: Node): boolean {
+  const el = node.nodeType === 1 ? (node as Element) : node.parentElement
+  return !!el?.closest('.ve-section-hidden')
+}
+
+function inScope(f: Finding): boolean {
+  void scopeVersion.value
+  if (!sectionOnly.value) return true
+  return !isHidden(f.element ?? f.ranges[0].startContainer)
+}
+
+function applySectionOnly(id: string) {
+  const surface = surfaceRef.value!
+  const target = surface.querySelector(`section[data-mw-section-id="${id}"]`)
+  if (!target) {
+    sectionOnly.value = null
+    return
+  }
+  for (let el: Element = target; el !== surface && el.parentElement; el = el.parentElement) {
+    for (const sibling of Array.from(el.parentElement.children)) {
+      if (sibling !== el) sibling.classList.add('ve-section-hidden')
+    }
+  }
+  scopeVersion.value++
+}
+
+/** "Edit full page": reveal the rest of the article, keeping the section where it is on screen. */
+function editFullPage(direction: -1 | 1 = 1) {
+  const surface = surfaceRef.value!
+  const target = sectionOnly.value ? surface.querySelector(`section[data-mw-section-id="${sectionOnly.value}"]`) : null
+  const before = target?.getBoundingClientRect().top ?? 0
+  surface.querySelectorAll('.ve-section-hidden').forEach((el) => el.classList.remove('ve-section-hidden'))
+  sectionOnly.value = null
+  scopeVersion.value++
+  nextTick(() => {
+    if (target) window.scrollBy({ top: target.getBoundingClientRect().top - before })
+    // Production nudges the page 130px towards the newly revealed content.
+    window.scrollBy({ top: direction * 130, behavior: 'smooth' })
+    scheduleLayout()
+  })
+}
+
+function sectionElement(): Element | null {
+  return sectionOnly.value
+    ? (surfaceRef.value?.querySelector(`section[data-mw-section-id="${sectionOnly.value}"]`) ?? null)
+    : null
+}
+
+/** "Edit full page" placement (`ArticleTarget`): top unless first, bottom unless last. */
+const sectionEdges = computed(() => {
+  void scopeVersion.value
+  const target = sectionElement()
+  const sections = Array.from(surfaceRef.value?.querySelectorAll('section[data-mw-section-id]') ?? []).filter(
+    (s) => Number(s.getAttribute('data-mw-section-id')) >= 0,
+  )
+  if (!target) return { first: true, last: true }
+  const index = sections.indexOf(target)
+  const last = sections.slice(index + 1).every((s) => target.contains(s))
+  return { first: index <= 0, last }
+})
+
+/** Suggestions above / below the edited section (lightbulb + dot on each button). */
+const outOfScope = computed(() => {
+  void scopeVersion.value
+  const target = sectionElement()
+  const result = { above: 0, below: 0 }
+  if (!target) return result
+  for (const f of filteredSuggestions.value) {
+    if (status.get(f.id) !== 'pending' || !isLive(f) || inScope(f)) continue
+    const node = f.element ?? f.ranges[0].startContainer
+    if (target.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING) result.above++
+    else result.below++
+  }
+  return result
+})
+
+/** Desktop: full page, scrolled so the section heading sits under the toolbar. */
+function scrollToSection(id: string) {
+  const heading = surfaceRef.value?.querySelector(`section[data-mw-section-id="${id}"] > :is(h2, h3, h4, h5, h6)`)
+  if (!heading) return
+  const toolbar = 42
+  window.scrollTo({ top: Math.max(0, heading.getBoundingClientRect().top + window.scrollY - toolbar - 16) })
+}
+
 /** Suggestions after the settings filter (type + custom count). */
 const filteredSuggestions = computed(() => applySuggestionSettings(suggestions.value))
 
 const pendingSuggestions = computed(() =>
-  filteredSuggestions.value.filter((f) => status.get(f.id) === 'pending' && isLive(f)),
+  filteredSuggestions.value.filter((f) => status.get(f.id) === 'pending' && isLive(f) && inScope(f)),
 )
-const pendingChecks = computed(() => checks.value.filter((f) => status.get(f.id) === 'pending' && isLive(f)))
+const pendingChecks = computed(() =>
+  checks.value.filter((f) => status.get(f.id) === 'pending' && isLive(f) && inScope(f)),
+)
 
 /** A check on the same range wins over a suggestion (`updateForListener`). */
 function overlapsCheck(f: Finding): boolean {
@@ -143,6 +252,7 @@ const displayed = computed<Finding[]>(() => {
   const transient = [...suggestions.value, ...checks.value].filter(
     (f) => (successIds.has(f.id) || publishPathId.value === f.id) && status.get(f.id) === 'done',
   )
+  if (loadingEditor.value) return []
   const visibleSuggestions = suggestionsOn.value
     ? pendingSuggestions.value.filter((f) => !overlapsCheck(f))
     : []
@@ -159,6 +269,7 @@ async function runDetection() {
   const root = surfaceRef.value!
   const findings = await detectSuggestions(root, props.page, {
     experiencedEditor: suggestionSettings.editCount === 'experienced',
+    atLeast25Edits: suggestionSettings.editCount !== 'new',
   })
   for (const f of findings) status.set(f.id, 'pending')
   suggestions.value = findings
@@ -579,7 +690,12 @@ function textStyle(command: string) {
 
 // ── Acting on a card ─────────────────────────────────────────────────────────
 
-const dialog = ref<{ kind: VeDialogKind; finding: Finding; initial?: string } | null>(null)
+const dialog = ref<{
+  kind: VeDialogKind
+  finding: Finding
+  initial?: string
+  fields?: { key: string; label: string }[]
+} | null>(null)
 
 function complete(f: Finding, message?: string) {
   status.set(f.id, 'done')
@@ -659,13 +775,25 @@ async function act(f: Finding, action: ChoiceAction, reason?: string) {
         dialog.value = { kind: 'caption', finding: f }
         return
       }
-      if (f.type === 'tone') {
-        // Revise: tag as revising and put the cursor at the end of the paragraph.
+      if (f.type === 'requiredTemplateParam') {
+        dialog.value = {
+          kind: 'template',
+          finding: f,
+          fields: (f.data!.missing as { template: string; name: string; partIndex: number }[]).map((m) => ({
+            key: `${m.partIndex}:${m.name}`,
+            label: `${m.template.replace(/^Template:/, '')}: ${m.name}`,
+          })),
+        }
+        return
+      }
+      if (f.type === 'tone' || f.type === 'leadLength') {
+        // Revise: tag as revising and put the cursor at the end of the paragraph (or lead).
         f.revising = true
         if (f.mode === 'check') checks.value = [...checks.value]
         else suggestions.value = [...suggestions.value]
         const range = document.createRange()
-        range.selectNodeContents(f.data!.block)
+        const end = f.type === 'leadLength' ? (f.data!.paragraphs as Element[]).at(-1)! : f.data!.block
+        range.selectNodeContents(end)
         range.collapse(false)
         const sel = window.getSelection()
         sel?.removeAllRanges()
@@ -677,6 +805,17 @@ async function act(f: Finding, action: ChoiceAction, reason?: string) {
     case 'recheck': {
       busyId.value = f.id
       const started = Date.now()
+      if (f.type === 'leadLength') {
+        // Recheck: still over 400 words?
+        const d = prepare(surfaceRef.value!, props.page)
+        const words = leadWordCount(d, leadParagraphs(d))
+        await new Promise((r) => setTimeout(r, Math.max(0, 500 - (Date.now() - started))))
+        busyId.value = null
+        f.revising = false
+        suggestions.value = [...suggestions.value]
+        if (words <= 400) complete(f, 'Thank you for considering the length of the lead section!')
+        return
+      }
       const stillFlagged = await Promise.race([
         recheckTone(f.data!.block, pageInfo.value),
         new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 3000)),
@@ -695,8 +834,26 @@ async function act(f: Finding, action: ChoiceAction, reason?: string) {
       fix.mergeLinks(f.data!.links)
       return complete(f)
     case 'fix':
+      if (f.type === 'fakeHeading') {
+        const paragraph = f.data!.paragraph as Element
+        fix.paragraphToHeading(paragraph, Math.max(fix.precedingHeadingLevel(paragraph) ?? 3, 3))
+        return complete(f)
+      }
+      if (f.type === 'redirect') {
+        // "Update link": point at the redirect's target; the link text stays.
+        busyId.value = f.id
+        const to = await resolveRedirect(props.page.host, f.data!.title)
+        busyId.value = null
+        if (!to) return
+        fix.relink(f.element!, to)
+        return complete(f)
+      }
       fix.setHeadingLevel(f.data!.heading, f.data!.targetLevel)
       return complete(f)
+    case 'valid':
+      return complete(f)
+    case 'invalid':
+      return dismiss(f)
     case 'delete':
       fix.deleteRange(f.ranges[0])
       return complete(f)
@@ -725,6 +882,8 @@ function onDialogSubmit(value: string) {
     fix.relink(f.element!, value)
   } else if (d.kind === 'caption') {
     fix.setImageCaption(f.element!, value)
+  } else if (d.kind === 'template') {
+    fix.setTemplateParams(f.element!, JSON.parse(value), f.data!.missing)
   }
   if (review.value) {
     reviewResolved(f)
@@ -811,7 +970,7 @@ function viewMore() {
 // Mobile gutter lightbulbs (one per highlight row; overlapping rows share one).
 const gutterMarks = computed(() => {
   if (!isMobile.value) return []
-  const marks: { top: number; ids: string[]; state: 'pending' | 'success' | 'check' }[] = []
+  const marks: { top: number; ids: string[]; state: 'pending' | 'success' | 'check'; experimental: boolean }[] = []
   for (const f of displayed.value) {
     const list = boxes.value.get(f.id)
     if (!list?.length) continue
@@ -821,7 +980,8 @@ const gutterMarks = computed(() => {
     if (existing) {
       existing.ids.push(f.id)
       if (state === 'check') existing.state = 'check'
-    } else marks.push({ top, ids: [f.id], state })
+      existing.experimental = existing.experimental && !!f.experimental
+    } else marks.push({ top, ids: [f.id], state, experimental: !!f.experimental })
   }
   return marks
 })
@@ -954,7 +1114,11 @@ function onScroll() {
 
 onMounted(async () => {
   const surface = surfaceRef.value!
+  const minimumLoad = new Promise((resolve) => setTimeout(resolve, isMobile.value ? 1200 : 1000))
   surface.innerHTML = props.html
+  // Chips need layout (they mark templates that render nothing), so before hiding sections.
+  addTemplateChips(surface)
+  if (sectionOnly.value) applySectionOnly(sectionOnly.value)
   // Media, references and templates are edited through dialogs, not typed into.
   surface
     .querySelectorAll('figure, sup.mw-ref, [typeof~="mw:Transclusion"], table.infobox, .navbox, .reflist, ol.mw-references, style')
@@ -970,8 +1134,13 @@ onMounted(async () => {
   window.addEventListener('resize', scheduleLayout)
   resizeObserver = new ResizeObserver(() => scheduleLayout())
   resizeObserver.observe(surface)
+  const detection = runDetection()
+  await minimumLoad
+  loadingEditor.value = false
   emit('sidebar', suggestionsOn.value && !isMobile.value)
-  await runDetection()
+  if (!isMobile.value && props.section) nextTick(() => scrollToSection(props.section!))
+  scheduleLayout()
+  await detection
   updateViewport()
 })
 
@@ -990,6 +1159,13 @@ watch(boxes, () => updateViewport())
 // Exposed for the page (Read tab / settings changes).
 defineExpose({ hasChanges })
 
+/** Card icon: alert for checks, dashed lightbulb for experimental suggestions. */
+const iconFor = (f: Finding) =>
+  f.mode === 'check' ? cdxIconAlert : f.experimental ? cdxIconLightbulbDashed : cdxIconLightbulb
+
+const subheadingFor = (f: Finding) =>
+  f.experimental ? (f.mode === 'check' ? 'Experimental edit check for testing' : 'Experimental suggestion for testing') : null
+
 const titleFor = (f: Finding) =>
   successIds.has(f.id) ? successTitles.get(f.id) ?? STR.successSuggestion : f.title
 </script>
@@ -1003,6 +1179,7 @@ const titleFor = (f: Finding) =>
       've-editor--glow': glow,
       've-editor--review': !!review,
       've-editor--sheet-open': sheetOpen,
+      've-editor--loading': loadingEditor,
     }"
   >
     <VeToolbar
@@ -1013,6 +1190,7 @@ const titleFor = (f: Finding) =>
       :can-redo="canRedo"
       :can-publish="hasChanges && !publishing"
       :review="!!review"
+      :loading="loadingEditor"
       @undo="undo"
       @redo="redo"
       @close="emit('exit')"
@@ -1022,6 +1200,19 @@ const titleFor = (f: Finding) =>
     />
 
     <div class="ve-editor__layout">
+      <div v-if="sectionOnly && !loadingEditor && !sectionEdges.first" class="ve-full-page ve-full-page--top">
+        <div class="ve-full-page__skeleton" aria-hidden="true"><div /><div /><div /><div /></div>
+        <CdxButton class="ve-full-page__btn" @click="editFullPage(-1)">
+          <span>Edit full page</span>
+          <span
+            v-if="suggestionsOn && outOfScope.above > 0"
+            class="ve-full-page__indicator"
+            :aria-label="`${outOfScope.above} suggestions above`"
+          >
+            <CdxIcon :icon="cdxIconLightbulb" />
+          </span>
+        </CdxButton>
+      </div>
       <div ref="wrapRef" class="ve-editor__surface-wrap">
         <!-- Highlights (VE draws selections as overlays; the markup stays untouched) -->
         <div class="ve-editor__highlights" aria-hidden="true">
@@ -1078,15 +1269,32 @@ const titleFor = (f: Finding) =>
               <path d="M10 1a9 9 0 110 18 9 9 0 010-18" fill="var(--color-success, #14866d)" />
               <path class="ve-success-check" d="M5.5 11.2 L8.5 13.5 L14.5 6.5" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
-            <CdxIcon v-else :icon="mark.state === 'check' ? cdxIconAlert : cdxIconLightbulb" />
+            <CdxIcon
+              v-else
+              :icon="mark.state === 'check' ? cdxIconAlert : mark.experimental ? cdxIconLightbulbDashed : cdxIconLightbulb"
+            />
             <span v-if="mark.ids.length > 1" class="ve-gutter__count">{{ mark.ids.length }}</span>
           </button>
         </div>
       </div>
 
+      <div v-if="sectionOnly && !loadingEditor && !sectionEdges.last" class="ve-full-page ve-full-page--bottom">
+        <div class="ve-full-page__skeleton" aria-hidden="true"><div /><div /><div /><div /></div>
+        <CdxButton class="ve-full-page__btn" @click="editFullPage(1)">
+          <span>Edit full page</span>
+          <span
+            v-if="suggestionsOn && outOfScope.below > 0"
+            class="ve-full-page__indicator"
+            :aria-label="`${outOfScope.below} suggestions below`"
+          >
+            <CdxIcon :icon="cdxIconLightbulb" />
+          </span>
+        </CdxButton>
+      </div>
+
       <!-- Desktop sidebar -->
       <aside
-        v-if="!isMobile && (suggestionsOn || pendingChecks.length || review)"
+        v-if="!isMobile && !loadingEditor && (suggestionsOn || pendingChecks.length || review)"
         ref="sidebarRef"
         class="ve-sidebar"
         :style="{ minHeight: `${sidebarHeight}px` }"
@@ -1141,8 +1349,13 @@ const titleFor = (f: Finding) =>
                 :aria-expanded="focusedId === f.id || !!review"
                 @click="review ? null : focusedId === f.id ? focus(null) : focus(f)"
               >
-                <span class="ve-card__icon"><CdxIcon :icon="f.mode === 'check' ? cdxIconAlert : cdxIconLightbulb" /></span>
-                <span class="ve-card__title">{{ f.title }}</span>
+                <span class="ve-card__icon"><CdxIcon :icon="iconFor(f)" /></span>
+                <span class="ve-card__heading">
+                  <span class="ve-card__title">{{ f.title }}</span>
+                  <span v-if="subheadingFor(f) && (focusedId === f.id || review)" class="ve-card__subheading">
+                    {{ subheadingFor(f) }}
+                  </span>
+                </span>
               </button>
               <div v-if="focusedId === f.id || review" class="ve-card__content">
                 <FindingBody :finding="f" skin="desktop" :busy="busyId === f.id" @act="(a, r) => act(f, a, r)" />
@@ -1221,8 +1434,13 @@ const titleFor = (f: Finding) =>
           }"
         >
           <div class="ve-sheet__header">
-            <CdxIcon :icon="(review ? currentReview : sheetFinding)!.mode === 'check' ? cdxIconAlert : cdxIconLightbulb" />
-            <div class="ve-sheet__title">{{ (review ? currentReview : sheetFinding)!.title }}</div>
+            <CdxIcon :icon="iconFor((review ? currentReview : sheetFinding)!)" />
+            <div class="ve-sheet__heading">
+              <div class="ve-sheet__title">{{ (review ? currentReview : sheetFinding)!.title }}</div>
+              <div v-if="subheadingFor((review ? currentReview : sheetFinding)!)" class="ve-sheet__subheading">
+                {{ subheadingFor((review ? currentReview : sheetFinding)!) }}
+              </div>
+            </div>
             <button v-if="!review" type="button" class="ve-sheet__icon-btn" aria-label="Close" @click="closeSheet">
               <CdxIcon :icon="cdxIconClose" />
             </button>
@@ -1257,6 +1475,7 @@ const titleFor = (f: Finding) =>
       :kind="dialog?.kind ?? null"
       :host="page.host"
       :initial="dialog?.initial"
+      :fields="dialog?.fields"
       @submit="onDialogSubmit"
       @cancel="dialog = null"
     />
@@ -1269,15 +1488,227 @@ const titleFor = (f: Finding) =>
 }
 
 .ve-editor__layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
+  position: relative;
 }
 
-.ve-editor[data-skin='desktop'].ve-editor--suggestions .ve-editor__layout,
-.ve-editor[data-skin='desktop'].ve-editor--review .ve-editor__layout {
-  grid-template-columns: minmax(0, 1fr) 325px;
+/* While the editor loads, the article stays visible but faded. */
+.ve-editor--loading .ve-editor__surface {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.ve-editor :deep(.ve-section-hidden) {
+  display: none !important;
+}
+
+/* Invisible templates: puzzle chip with the template name (VE's invisible icon). */
+.ve-editor__surface :deep(.ve-ce-focusableNode-invisible) {
+  display: inline-block !important;
+  vertical-align: middle;
+  margin: -0.7em 0 -0.6em;
+  width: auto;
+}
+
+.ve-editor__surface :deep(p.ve-show-empty) {
+  display: block !important;
+}
+
+.ve-editor__surface :deep(.ve-template-chip) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 6px;
+  border-radius: 2px;
+  opacity: 0.5;
+  font-family: var(--font-family-base, sans-serif);
+  font-size: 0.875rem;
+  font-style: normal;
+  font-weight: var(--font-weight-bold, 700);
+  line-height: 20px;
+  color: var(--color-base, #202122);
+  cursor: default;
+  user-select: none;
+  vertical-align: middle;
+}
+
+.ve-editor__surface :deep(.ve-template-chip__icon) {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+}
+
+.ve-editor__surface :deep(.ve-template-chip__label) {
+  max-width: 15em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ve-editor__surface :deep(.ve-newline) {
+  margin: 0 4px;
+  color: var(--color-base, #202122);
+  user-select: none;
+}
+
+/* "Edit full page" (ArticleTarget switchFull): centred button over faded skeleton lines. */
+.ve-full-page {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin: 2.5em 0;
+}
+
+.ve-full-page--bottom {
+  margin-bottom: 1.5em;
+}
+
+.ve-full-page__btn {
+  box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.25);
+}
+
+.ve-full-page__skeleton {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  z-index: -1;
+}
+
+.ve-full-page--top .ve-full-page__skeleton {
+  top: -2.5em;
+}
+
+.ve-full-page--bottom .ve-full-page__skeleton {
+  top: -1em;
+}
+
+.ve-full-page__skeleton > div {
+  height: 20px;
+  margin-bottom: 4px;
+  border-radius: 2px;
+  background: var(--background-color-interactive, #eaecf0);
+}
+
+.ve-full-page__skeleton > div:nth-child(1) {
+  width: 80%;
+}
+
+.ve-full-page__skeleton > div:nth-child(4) {
+  width: 70%;
+}
+
+.ve-full-page--top .ve-full-page__skeleton > div:nth-child(1) { opacity: 0.15; }
+.ve-full-page--top .ve-full-page__skeleton > div:nth-child(2) { opacity: 0.3; }
+.ve-full-page--top .ve-full-page__skeleton > div:nth-child(3) { opacity: 0.45; }
+.ve-full-page--top .ve-full-page__skeleton > div:nth-child(4) { opacity: 0.6; }
+.ve-full-page--bottom .ve-full-page__skeleton > div:nth-child(1) { opacity: 0.6; }
+.ve-full-page--bottom .ve-full-page__skeleton > div:nth-child(2) { opacity: 0.45; }
+.ve-full-page--bottom .ve-full-page__skeleton > div:nth-child(3) { opacity: 0.3; }
+.ve-full-page--bottom .ve-full-page__skeleton > div:nth-child(4) { opacity: 0.15; }
+
+/* Suggestions outside the section: lightbulb with a divider and a blue dot. */
+.ve-full-page__indicator {
+  position: relative;
+  display: inline-flex;
+  margin: 0 -4px 0 10px;
+  border-left: 4px solid transparent;
+  box-shadow: -1px 0 0 var(--border-color-base, #a2a9b1);
+}
+
+.ve-full-page__indicator::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--background-color-progressive, #36c);
+  border: 1px solid var(--border-color-inverted, #fff);
+}
+
+/* Invisible templates: puzzle chip with the template name (VE's invisible icon). */
+.ve-editor__surface :deep(.ve-ce-focusableNode-invisible) {
+  display: inline-block !important;
+  vertical-align: middle;
+  margin: -0.7em 0 -0.6em;
+  width: auto;
+}
+
+.ve-editor__surface :deep(p.ve-show-empty) {
+  display: block !important;
+}
+
+.ve-editor__surface :deep(.ve-template-chip) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 6px;
+  border-radius: 2px;
+  opacity: 0.5;
+  font-family: var(--font-family-base, sans-serif);
+  font-size: 0.875rem;
+  font-style: normal;
+  font-weight: var(--font-weight-bold, 700);
+  line-height: 20px;
+  color: var(--color-base, #202122);
+  cursor: default;
+  user-select: none;
+  vertical-align: middle;
+}
+
+.ve-editor__surface :deep(.ve-template-chip__icon) {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+}
+
+.ve-editor__surface :deep(.ve-template-chip__label) {
+  max-width: 15em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ve-editor__surface :deep(.ve-newline) {
+  margin: 0 4px;
+  color: var(--color-base, #202122);
+  user-select: none;
+}
+
+.ve-full-page {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0;
+}
+
+.ve-full-page__btn :deep(.cdx-button),
+.ve-full-page__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ve-full-page__sep {
+  color: var(--color-subtle, #54595d);
+  font-weight: var(--font-weight-normal, 400);
+}
+
+.ve-full-page__indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ve-full-page__dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-progressive, #36c);
 }
 
 .ve-editor__surface-wrap {
@@ -1364,10 +1795,13 @@ const titleFor = (f: Finding) =>
 }
 
 /* ── Desktop sidebar ── */
+/* The sidebar sits outside the article column (which keeps its reading width). */
 .ve-sidebar {
-  position: relative;
-  align-self: stretch;
-  margin-top: var(--spacing-100, 16px);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(100% + 24px);
+  width: 325px;
 }
 
 .ve-card {
@@ -1476,6 +1910,29 @@ const titleFor = (f: Finding) =>
 
 .ve-card__icon--success .cdx-icon {
   color: var(--color-success, #14866d);
+}
+
+.ve-card__heading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ve-card__subheading,
+.ve-sheet__subheading {
+  font-size: var(--font-size-x-small, 12px);
+  font-style: italic;
+  color: var(--color-subtle, #54595d);
+  line-height: 16px;
+}
+
+.ve-sheet__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-block: 8px;
 }
 
 .ve-card__title {

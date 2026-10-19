@@ -203,3 +203,79 @@ export async function predictTone(
   }
   return out.map((v) => v === true)
 }
+
+/** `action=query&redirects` → the redirect's final target (RedirectEditCheck "Update link"). */
+export async function resolveRedirect(host: string, title: string): Promise<string | null> {
+  try {
+    const data = await fetchJson(actionApi(host, { action: 'query', titles: title, redirects: '1' }))
+    return data?.query?.redirects?.[0]?.to ?? null
+  } catch {
+    return null
+  }
+}
+
+/** TemplateData for templates (RequiredTemplateParamEditCheck), keyed by prefixed title. */
+export async function fetchTemplateData(
+  host: string,
+  titles: string[],
+): Promise<Map<string, Record<string, { required?: boolean; label?: unknown }>>> {
+  const out = new Map<string, Record<string, { required?: boolean; label?: unknown }>>()
+  const unique = [...new Set(titles)]
+  const batches: string[][] = []
+  for (let i = 0; i < unique.length; i += 50) batches.push(unique.slice(i, i + 50))
+  await Promise.all(
+    batches.map(async (batch) => {
+      try {
+        const data = await once(`td|${host}|${batch.join('|')}`, () =>
+          fetchJson(
+            actionApi(host, {
+              action: 'templatedata',
+              lang: 'en',
+              includeMissingTitles: '1',
+              redirects: '1',
+              titles: batch.join('|'),
+            }),
+          ),
+        )
+        const redirects = new Map<string, string>()
+        for (const r of data?.redirects ?? []) redirects.set(r.to, r.from)
+        const normalized = new Map<string, string>()
+        for (const n of data?.normalized ?? []) normalized.set(n.to, n.from)
+        for (const page of Object.values<any>(data?.pages ?? {})) {
+          if (!page?.params) continue
+          const asked = redirects.get(page.title) ?? page.title
+          out.set(normalized.get(asked) ?? asked, page.params)
+          out.set(page.title, page.params)
+        }
+      } catch {
+        /* fail soft */
+      }
+    }),
+  )
+  return out
+}
+
+export interface LlmSuggestion {
+  title?: string
+  static_description?: string
+  description?: string
+  target?: string
+  suggestion_type?: string
+  suggestion_id?: string | number
+}
+
+/** LLM editing suggestions (LLMSuggestionsEditCheck) — often empty for most pages. */
+export async function fetchLlmSuggestions(host: string, lang: string, title: string): Promise<LlmSuggestion[]> {
+  return once(`llm|${host}|${title}`, async () => {
+    const info = await fetchJson(actionApi(host, { action: 'query', titles: title, prop: 'info' }))
+    const pageId = info?.query?.pages?.[0]?.pageid
+    if (!pageId) return []
+    const data = await fetchJson('https://api.wikimedia.org/service/lw/inference/v1/models/editing-suggestions:predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wiki_id: `${lang}wiki`, page_id: pageId }),
+    })
+    if (!Array.isArray(data?.suggestions)) throw new Error('No suggestions')
+    return (data.suggestions as LlmSuggestion[]).filter((s) => s.suggestion_type !== 'NPOV')
+  }).catch(() => [])
+}

@@ -8,7 +8,7 @@
 import { buildRun, contentsRange, isInValidSection, makeContext, collectBlocks } from './dom'
 import { predictTone, TONE_LANGUAGES } from './api'
 import { toneFinding, type Finding } from './checks'
-import { CHECK_STRINGS as S } from './strings'
+import { CHECK_STRINGS as S, EXPERIMENTAL_STRINGS as X } from './strings'
 
 let counter = 0
 const nextId = (p: string) => `${p}-check-${++counter}`
@@ -145,6 +145,13 @@ export function addReferenceChecks(root: Element, addedParagraphs: Set<Element>)
 export function feedbackFormFor(finding: Finding, action: string):
   | { description: string; options: readonly { value: string; label: string }[] }
   | null {
+  // Experimental checks that ask for a reason even as suggestions (`allowInSuggestions`).
+  if (finding.type === 'leadLength' && action === 'dismiss') {
+    return { description: 'Other editors would value learning why you made this choice.', options: X.leadLength.declineOptions }
+  }
+  if (finding.type === 'llmSuggestion' && action === 'invalid') {
+    return { description: X.llmSuggestion.invalidDescription, options: X.llmSuggestion.invalidOptions }
+  }
   if (finding.mode !== 'check') return null
   if (finding.type === 'addReference' && action === 'reject') {
     return { description: S.addReference.rejectDescription, options: S.addReference.rejectOptions }
