@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue'
-import { CdxButton, CdxIcon, CdxPopover, CdxTextInput } from '@wikimedia/codex'
 import {
+  CdxButton,
+  CdxIcon,
+  CdxPopover,
+  CdxTextInput,
+  CdxToast,
+  CdxToastContainer,
+  CdxToggleButton,
+} from '@wikimedia/codex'
+import {
+  cdxIconBookmark,
+  cdxIconBookmarkOutline,
   cdxIconDownTriangle,
   cdxIconDownload,
   cdxIconEdit,
@@ -61,12 +71,27 @@ const emit = defineEmits<{
   readClick: []
   editClick: []
   historyClick: []
+  watchClick: []
   bookmarkClick: []
   downloadClick: []
   moreClick: []
   languageSelect: [link: ArticleLanguageLink]
   languageSettingsClick: []
 }>()
+
+const isWatched = ref(false)
+const isBookmarked = ref(false)
+const showSavedToast = ref(false)
+
+function onWatchClick() {
+  isWatched.value = !isWatched.value
+  emit('watchClick')
+}
+
+watch(isBookmarked, (saved) => {
+  showSavedToast.value = saved
+  emit('bookmarkClick')
+})
 
 const langMenuOpen = ref(false)
 const langSearch = ref('')
@@ -135,24 +160,34 @@ function onLanguagePick(row: ArticleLanguageLink) {
       >
         <a
           href="#"
-          class="article-header__action article-header__action--active"
-          aria-current="true"
+          class="article-header__tab article-header__tab--active"
+          aria-current="page"
           @click.prevent="$emit('readClick')"
         >
           Read
         </a>
-        <a href="#" class="article-header__action" @click.prevent="$emit('editClick')"> Edit </a>
-        <a href="#" class="article-header__action" @click.prevent="$emit('historyClick')">
+        <a href="#" class="article-header__tab" @click.prevent="$emit('editClick')"> Edit </a>
+        <a href="#" class="article-header__tab" @click.prevent="$emit('historyClick')">
           View history
         </a>
         <CdxButton
-          class="article-header__icon-btn"
+          class="article-header__watch"
+          action="progressive"
           weight="quiet"
-          aria-label="Watch"
-          @click="$emit('bookmarkClick')"
+          :aria-pressed="isWatched"
+          @click="onWatchClick"
         >
-          <CdxIcon :icon="cdxIconUnStar" />
+          <CdxIcon :icon="isWatched ? cdxIconUnStar : cdxIconStar" />
+          {{ isWatched ? 'Unwatch' : 'Watch' }}
         </CdxButton>
+        <CdxToggleButton
+          v-model="isBookmarked"
+          class="article-header__bookmark"
+          quiet
+          :aria-label="isBookmarked ? 'Remove from saved items' : 'Save page'"
+        >
+          <CdxIcon :icon="isBookmarked ? cdxIconBookmark : cdxIconBookmarkOutline" />
+        </CdxToggleButton>
       </nav>
     </div>
 
@@ -280,6 +315,17 @@ function onLanguagePick(row: ArticleLanguageLink) {
       </div>
     </CdxPopover>
 
+    <CdxToastContainer />
+    <CdxToast
+      v-if="showSavedToast"
+      type="success"
+      auto-dismiss
+      @user-dismissed="showSavedToast = false"
+      @auto-dismissed="showSavedToast = false"
+    >
+      <strong>{{ title }}</strong> has been added to your <a href="#" @click.prevent>saved items</a>.
+    </CdxToast>
+
     <p v-if="effectiveSkin === 'desktop'" class="article-header__tagline">
       {{ DEFAULT_TAGLINE }}
     </p>
@@ -393,14 +439,19 @@ function onLanguagePick(row: ArticleLanguageLink) {
   flex-shrink: 0;
 }
 
+/* Vector 2022 page toolbar: 32px row, 14px normal-weight tabs, 2px underline
+   on the selected tab, a base-color rule under the title and a subtle rule
+   under the toolbar. */
 .article-header__toolbar {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
   gap: var(--spacing-100, 16px);
   flex-wrap: wrap;
+  min-height: 32px;
   padding: 0;
-  border-block: 1px solid var(--border-color-subtle);
+  border-top: 1px solid var(--border-color-base, #a2a9b1);
+  border-bottom: 1px solid var(--border-color-subtle, #c8ccd1);
   margin: 0;
   font-family: var(--font-family-base);
   font-size: var(--font-size-small, 14px);
@@ -409,39 +460,66 @@ function onLanguagePick(row: ArticleLanguageLink) {
 .article-header__tabs,
 .article-header__actions {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-75, 12px);
+  align-items: stretch;
+  gap: var(--spacing-100, 16px);
   flex-wrap: wrap;
 }
 
-.article-header__tab,
-.article-header__action {
+.article-header__actions {
+  align-items: center;
+  gap: 0 var(--spacing-100, 16px);
+}
+
+.article-header__actions .article-header__tab {
+  align-self: stretch;
+}
+
+.article-header__tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  padding: var(--spacing-50, 8px) var(--spacing-12, 1px);
+  min-height: 32px;
+  padding: 0;
   margin: 0;
   color: var(--color-progressive);
   text-decoration: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
 }
 
-.article-header__tab:hover,
-.article-header__action:hover {
+.article-header__tab::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 2px;
+  background-color: transparent;
+}
+
+.article-header__tab:hover {
   text-decoration: underline;
 }
 
-.article-header__tab--active,
-.article-header__action--active {
+.article-header__tab--active {
   color: var(--color-base);
-  font-weight: var(--font-weight-bold);
-  border-bottom-color: var(--color-base);
+}
+
+.article-header__tab--active:hover {
   text-decoration: none;
 }
 
-.article-header__icon-btn {
-  margin-inline-start: var(--spacing-25, 2px);
-  color: var(--color-base);
+.article-header__tab--active::after {
+  background-color: var(--color-base);
+}
+
+/* Watch + bookmark sit in the same row as the text tabs; pull them in so the
+   quiet buttons' padding doesn't add extra space. */
+.article-header__watch {
+  /* Match the text tabs (Codex buttons default to bold). */
+  font-size: var(--font-size-small, 14px);
+  font-weight: var(--font-weight-normal);
+  margin-inline: calc(-1 * var(--spacing-50, 8px)) calc(-1 * var(--spacing-75, 12px));
+}
+
+.article-header__bookmark {
+  margin-inline-end: calc(-1 * var(--spacing-50, 8px));
 }
 
 .article-header__tagline {
@@ -544,7 +622,10 @@ function onLanguagePick(row: ArticleLanguageLink) {
 
 .article-header[data-skin='mobile'] .article-header__tab--active {
   color: var(--color-subtle);
-  border-bottom-color: var(--color-subtle);
   font-weight: var(--font-weight-bold);
+}
+
+.article-header[data-skin='mobile'] .article-header__tab--active::after {
+  background-color: var(--color-subtle);
 }
 </style>
