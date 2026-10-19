@@ -124,16 +124,44 @@ function onDocumentClick(e: MouseEvent) {
   if (!(e.target as Element)?.closest?.('.ve-toolbar__menu, .ve-toolbar__menu-trigger')) openMenu.value = null
 }
 
+/**
+ * Minerva toolbar width: each middle item needs 44px. Undo, Text styles, Add,
+ * More, the suggestions toggle (and Redo when shown) always fit; Link, then
+ * Cite, become top-level buttons when there's room, otherwise they live in "+".
+ */
+const scrollAreaRef = ref<HTMLElement | null>(null)
+const scrollAreaWidth = ref(0)
+let scrollAreaObserver: ResizeObserver | null = null
+watch(scrollAreaRef, (el, _old, onCleanup) => {
+  scrollAreaObserver?.disconnect()
+  if (!el) return
+  scrollAreaObserver = new ResizeObserver(() => (scrollAreaWidth.value = el.clientWidth))
+  scrollAreaObserver.observe(el)
+  scrollAreaWidth.value = el.clientWidth
+  onCleanup(() => scrollAreaObserver?.disconnect())
+})
+const slots = computed(() =>
+  Math.floor((scrollAreaWidth.value || Math.max(0, window.innerWidth - 88)) / 44),
+)
+const coreSlots = computed(() => 4 + (props.canRedo ? 1 : 0) + 1)
+const showLink = computed(() => slots.value >= coreSlots.value + 1)
+const showCite = computed(() => showLink.value && slots.value >= coreSlots.value + 2)
+const overflowing = computed(() => slots.value < coreSlots.value + (showLink.value ? 1 : 0) + (showCite.value ? 1 : 0))
+
 const TEXT_STYLES = [
   { value: 'bold', label: 'Bold', icon: cdxIconBold },
   { value: 'italic', label: 'Italic', icon: cdxIconItalic },
   { value: 'strikeThrough', label: 'Strikethrough', icon: cdxIconStrikethrough },
   { value: 'underline', label: 'Underline', icon: cdxIconUnderline },
 ]
-const ADD_ITEMS = [
-  { value: 'link', label: 'Link', icon: cdxIconLink },
-  { value: 'cite', label: 'Cite', icon: cdxIconQuotes },
-  { divider: true },
+const addItems = computed(() => [
+  ...(!showLink.value ? [{ value: 'link', label: 'Link', icon: cdxIconLink }] : []),
+  ...(!showCite.value ? [{ value: 'cite', label: 'Cite', icon: cdxIconQuotes }] : []),
+  ...(!showLink.value || !showCite.value ? [{ divider: true }] : []),
+  ...ADD_ITEMS_BASE,
+])
+
+const ADD_ITEMS_BASE = [
   { value: 'images-media', label: 'Images and media', icon: cdxIconImage },
   { value: 'table', label: 'Table', icon: cdxIconTable },
   { divider: true },
@@ -244,6 +272,9 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <div class="ve-toolbar__group">
+      <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Help">
+        <CdxIcon :icon="cdxIconHelp" />
+      </button>
       <CdxToggleButton
         v-model="toggleModel"
         quiet
@@ -260,9 +291,6 @@ onBeforeUnmount(() => {
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
       </CdxToggleButton>
-      <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Help">
-        <CdxIcon :icon="cdxIconHelp" />
-      </button>
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Page options">
         <CdxIcon :icon="cdxIconMenu" />
       </button>
@@ -292,7 +320,7 @@ onBeforeUnmount(() => {
     <button class="ve-toolbar__btn ve-toolbar__btn--fixed ve-toolbar__btn--close" aria-label="Close" @click="emit('close')">
       <CdxIcon :icon="cdxIconClose" />
     </button>
-    <div class="ve-toolbar__scroll">
+    <div ref="scrollAreaRef" class="ve-toolbar__scroll" :class="{ 've-toolbar__scroll--overflowing': overflowing }">
       <button class="ve-toolbar__btn ve-toolbar__btn--fill" aria-label="Undo" :disabled="!canUndo" @click="emit('undo')">
         <CdxIcon :icon="cdxIconUndo" />
       </button>
@@ -333,6 +361,12 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
+      <button v-if="showLink" class="ve-toolbar__btn ve-toolbar__btn--fill" aria-label="Link">
+        <CdxIcon :icon="cdxIconLink" />
+      </button>
+      <button v-if="showCite" class="ve-toolbar__btn ve-toolbar__btn--fill" aria-label="Cite">
+        <CdxIcon :icon="cdxIconQuotes" />
+      </button>
       <div class="ve-toolbar__menu-wrap ve-toolbar__btn--fill">
         <button
           class="ve-toolbar__btn ve-toolbar__menu-trigger"
@@ -343,7 +377,7 @@ onBeforeUnmount(() => {
           <CdxIcon :icon="cdxIconAdd" />
         </button>
         <div v-if="openMenu === 'add'" class="ve-toolbar__menu" role="menu">
-          <template v-for="(item, i) in ADD_ITEMS" :key="i">
+          <template v-for="(item, i) in addItems" :key="i">
             <div v-if="'divider' in item" class="ve-toolbar__menu-divider" role="separator" />
             <button v-else class="ve-toolbar__menu-item" role="menuitem" @click="openMenu = null">
               <CdxIcon :icon="item.icon" />
@@ -750,6 +784,21 @@ onBeforeUnmount(() => {
 
 .ve-toolbar__scroll::-webkit-scrollbar {
   display: none;
+}
+
+/* Not even the core fits: fixed 44px items, horizontal scroll, fade on the right. */
+.ve-toolbar__scroll--overflowing .ve-toolbar__btn--fill {
+  flex: 0 0 44px !important;
+}
+
+.ve-toolbar__scroll--overflowing::after {
+  content: '';
+  position: sticky;
+  right: 0;
+  flex: 0 0 16px;
+  margin-left: -16px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff 85%);
+  pointer-events: none;
 }
 
 .ve-toolbar[data-skin='mobile'] .ve-toolbar__btn--fill {

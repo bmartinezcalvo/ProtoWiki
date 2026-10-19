@@ -1199,6 +1199,9 @@ const titleFor = (f: Finding) =>
       @text-style="textStyle"
     />
 
+    <!-- Vector: the tagline sits under the editor toolbar. -->
+    <p v-if="!isMobile" class="ve-editor__tagline">From Wikipedia, the free encyclopedia</p>
+
     <div class="ve-editor__layout">
       <div v-if="sectionOnly && !loadingEditor && !sectionEdges.first" class="ve-full-page ve-full-page--top">
         <div class="ve-full-page__skeleton" aria-hidden="true"><div /><div /><div /><div /></div>
@@ -1491,6 +1494,26 @@ const titleFor = (f: Finding) =>
   position: relative;
 }
 
+.ve-editor__tagline {
+  margin: var(--spacing-50, 8px) 0 0;
+  padding: 0;
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-small, 14px);
+  color: var(--color-base);
+}
+
+/* Minerva edit mode: second-level headings styled as on desktop (Vector). */
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(h2) {
+  font-family: 'Linux Libertine', Georgia, Times, 'Source Serif 4', serif;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 34px;
+  margin: 0 0 14.4px;
+  padding: 12px 0 4.08px;
+  border-bottom: 1px solid #a2a9b1;
+  color: var(--color-emphasized, #101418);
+}
+
 /* While the editor loads, the article stays visible but faded. */
 .ve-editor--loading .ve-editor__surface {
   opacity: 0.5;
@@ -1554,9 +1577,15 @@ const titleFor = (f: Finding) =>
 /* "Edit full page" (ArticleTarget switchFull): centred button over faded skeleton lines. */
 .ve-full-page {
   position: relative;
+  isolation: isolate;
   display: flex;
   justify-content: center;
   margin: 2.5em 0;
+}
+
+/* Same width as the article content (which leaves room for the suggestions gutter). */
+.ve-editor[data-skin='mobile'].ve-editor--suggestions .ve-full-page {
+  margin-right: 60px;
 }
 
 .ve-full-page--bottom {

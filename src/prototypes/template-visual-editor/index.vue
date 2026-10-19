@@ -290,6 +290,16 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
   text-decoration: underline;
 }
 
+/* In edit mode the tagline moves under the editor toolbar (rendered by the editor). */
+.ve-page--editing :deep(.article-header__tagline) {
+  display: none;
+}
+
+/* Minerva read mode: a section's edit pencil only shows while it's expanded. */
+.ve-page[data-skin='mobile'] :deep(.protowiki-mobile-h2--collapsed .protowiki-mobile-h2__edit) {
+  display: none;
+}
+
 /* Minerva edit mode: like production, no page title or page actions — just the editor. */
 .ve-page--editing[data-skin='mobile'] :deep(.article-header) {
   display: none;
