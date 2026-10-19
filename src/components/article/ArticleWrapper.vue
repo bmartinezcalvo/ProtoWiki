@@ -30,6 +30,8 @@ interface Props {
   description?: string
   /** Lead image — app shell only; the frame stays as a placeholder without one. */
   leadImageUrl?: string
+  /** Forwarded to **`ArticleHeader`**: which page-action tab is selected. */
+  activeView?: 'read' | 'edit'
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -43,7 +45,14 @@ const props = withDefaults(defineProps<Props>(), {
   app: false,
   description: undefined,
   leadImageUrl: undefined,
+  activeView: 'read',
 })
+
+const emit = defineEmits<{
+  /** Forwarded from **`ArticleHeader`** page actions. */
+  readClick: []
+  editClick: []
+}>()
 
 const inheritedSkin = inject(PROTOWIKI_CHROME_SKIN)
 const inheritedTheme = inject(PROTOWIKI_CHROME_THEME)
@@ -94,6 +103,9 @@ const chromeHeaderLabel = computed(() => leadTitle.value || 'Article')
       :title="chromeHeaderLabel"
       :languages-count="props.languagesCount"
       :skin="props.skin"
+      :active-view="props.activeView"
+      @read-click="emit('readClick')"
+      @edit-click="emit('editClick')"
     />
 
     <slot />

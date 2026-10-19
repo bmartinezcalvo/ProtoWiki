@@ -5,6 +5,7 @@ import { RouterLink } from 'vue-router'
 import type { HeaderItem } from '@/components/header/headerItems'
 import type { ChromeNavTool } from './headerNavTools'
 import MinervaChromeHeader from './MinervaChromeHeader.vue'
+import { MINERVA_DEFAULT_RIGHT } from './minervaHeaderDefaults'
 import VectorChromeHeader from './VectorChromeHeader.vue'
 import { globalSkin, globalTheme } from '@/theme'
 import type { Skin, Theme } from '@/theme'
@@ -53,9 +54,9 @@ const effectiveSkin = computed<Skin>(() => props.skin ?? globalSkin.value)
 const effectiveTheme = computed<Theme>(() => props.theme ?? globalTheme.value)
 const isDesktop = computed(() => effectiveSkin.value === 'desktop')
 
-function slotBridgeComponent(slotName: 'menu' | 'logo') {
+function slotBridgeComponent(slotName: 'menu' | 'logo' | 'user-menu') {
   return defineComponent({
-    name: `ChromeHeader${slotName === 'menu' ? 'Menu' : 'Logo'}Slot`,
+    name: `ChromeHeader${slotName === 'menu' ? 'Menu' : slotName === 'logo' ? 'Logo' : 'UserMenu'}Slot`,
     setup() {
       return () => slots[slotName]?.() ?? null
     },
@@ -95,7 +96,18 @@ const minervaMiddle = computed((): HeaderItem[] | undefined => {
   return undefined
 })
 
-const minervaRight = computed((): HeaderItem[] | undefined => props.right)
+const minervaRight = computed((): HeaderItem[] | undefined => {
+  if (props.right !== undefined) return props.right
+  // `#user-menu` replaces the default user button, keeping the rest of the bar.
+  if (slots['user-menu']) {
+    return MINERVA_DEFAULT_RIGHT.map((item) =>
+      item.type === 'button' && item.label === 'User menu'
+        ? { type: 'component', component: slotBridgeComponent('user-menu') }
+        : item,
+    )
+  }
+  return undefined
+})
 </script>
 
 <template>
@@ -118,6 +130,9 @@ const minervaRight = computed((): HeaderItem[] | undefined => props.right)
     </template>
     <template v-if="slots.nav" #nav>
       <slot name="nav" />
+    </template>
+    <template v-if="slots['user-menu']" #user-menu>
+      <slot name="user-menu" />
     </template>
   </VectorChromeHeader>
 

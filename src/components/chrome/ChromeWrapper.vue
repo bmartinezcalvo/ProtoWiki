@@ -91,6 +91,9 @@ provide(PROTOWIKI_CHROME_THEME, effectiveTheme)
         <template v-if="$slots.menu" #menu>
           <slot name="menu" />
         </template>
+        <template v-if="$slots['user-menu']" #user-menu>
+          <slot name="user-menu" />
+        </template>
       </ChromeHeader>
     </slot>
 

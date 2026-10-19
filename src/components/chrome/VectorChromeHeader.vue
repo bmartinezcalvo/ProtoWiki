@@ -189,6 +189,7 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
             <CdxIcon :icon="cdxIconWatchlist" />
           </CdxButton>
           <div v-if="navHas('user')" class="vector-chrome-header__user-menu">
+            <slot name="user-menu">
             <CdxButton weight="quiet" aria-label="User menu" aria-haspopup="menu">
               <CdxIcon :icon="cdxIconUserAvatar" />
               <CdxIcon
@@ -197,6 +198,7 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
                 size="small"
               />
             </CdxButton>
+            </slot>
           </div>
         </slot>
       </div>

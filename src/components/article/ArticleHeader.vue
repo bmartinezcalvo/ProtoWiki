@@ -48,11 +48,14 @@ interface Props {
    * Drives the structural mobile vs desktop layout (icon toolbar vs text actions).
    */
   skin?: Skin
+  /** Which page-action tab is selected (desktop): **`'read'`** or **`'edit'`**. */
+  activeView?: 'read' | 'edit'
 }
 
 const props = withDefaults(defineProps<Props>(), {
   languagesCount: 18,
   skin: undefined,
+  activeView: 'read',
 })
 
 const inheritedSkin = inject(PROTOWIKI_CHROME_SKIN)
@@ -160,13 +163,22 @@ function onLanguagePick(row: ArticleLanguageLink) {
       >
         <a
           href="#"
-          class="article-header__tab article-header__tab--active"
-          aria-current="page"
+          class="article-header__tab"
+          :class="{ 'article-header__tab--active': activeView === 'read' }"
+          :aria-current="activeView === 'read' ? 'page' : undefined"
           @click.prevent="$emit('readClick')"
         >
           Read
         </a>
-        <a href="#" class="article-header__tab" @click.prevent="$emit('editClick')"> Edit </a>
+        <a
+          href="#"
+          class="article-header__tab"
+          :class="{ 'article-header__tab--active': activeView === 'edit' }"
+          :aria-current="activeView === 'edit' ? 'page' : undefined"
+          @click.prevent="$emit('editClick')"
+        >
+          Edit
+        </a>
         <a href="#" class="article-header__tab" @click.prevent="$emit('historyClick')">
           View history
         </a>
