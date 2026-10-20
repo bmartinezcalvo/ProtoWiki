@@ -1928,40 +1928,6 @@ const titleFor = (f: Finding) =>
   user-select: none;
 }
 
-.ve-full-page {
-  display: flex;
-  justify-content: center;
-  margin: 12px 0;
-}
-
-.ve-full-page__btn :deep(.cdx-button),
-.ve-full-page__btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ve-full-page__sep {
-  color: var(--color-subtle, #54595d);
-  font-weight: var(--font-weight-normal, 400);
-}
-
-.ve-full-page__indicator {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.ve-full-page__dot {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--color-progressive, #36c);
-}
-
 .ve-editor__surface-wrap {
   position: relative;
   min-width: 0;
