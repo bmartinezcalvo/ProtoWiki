@@ -22,6 +22,7 @@ import ChromeWrapper from '@/components/chrome/ChromeWrapper.vue'
 import SettingsPopover from '@/components/settings/SettingsPopover.vue'
 import { provideChromeSearchHandlers } from '@/composables/useChromeSearch'
 import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEditCount'
+import { useWikiPageTitleQuery } from '@/composables/useWikiPageTitleQuery'
 import { editorHasAtLeast25Edits, editorIsExperienced } from '@/config'
 import { globalSkin } from '@/theme'
 
@@ -33,6 +34,7 @@ import { suggestionSettings } from './settings'
 import { useSuggestionArticle } from './useSuggestionArticle'
 
 const { editCount, editCountReady } = useEffectiveEditorEditCount()
+const { titleFromQuery, setWikiPageTitle } = useWikiPageTitleQuery()
 
 const skin = computed(() => globalSkin.value)
 const isMobile = computed(() => skin.value === 'mobile')
@@ -53,7 +55,26 @@ const { article, loading, error, count, load, loadTitle, refreshCount } = useSug
   },
 )
 
-void load()
+function loadFromQueryTitle(title: string | undefined) {
+  if (title) void loadTitle(title)
+  else void load()
+}
+
+onMounted(() => {
+  loadFromQueryTitle(titleFromQuery.value)
+})
+
+watch(titleFromQuery, (title) => {
+  if (title === article.value?.title) return
+  loadFromQueryTitle(title)
+})
+
+watch(
+  () => article.value?.title,
+  (title) => {
+    if (title) setWikiPageTitle(title)
+  },
+)
 
 watch([editCount, editCountReady], () => {
   if (editCountReady.value) void refreshCount()
@@ -62,12 +83,12 @@ watch([editCount, editCountReady], () => {
 provideChromeSearchHandlers({
   onSelect(title) {
     editing.value = false
-    void loadTitle(title)
+    setWikiPageTitle(title)
   },
   onSubmit({ title }) {
     if (!title) return
     editing.value = false
-    void loadTitle(title)
+    setWikiPageTitle(title)
   },
 })
 

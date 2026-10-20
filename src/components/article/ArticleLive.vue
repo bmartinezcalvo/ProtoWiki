@@ -121,6 +121,8 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   /** Parser root, once the body is in the DOM — for `<Teleport>` and in-article overlays. */
   parserReady: [root: HTMLElement]
+  /** Wiki page title once known (fixed prop, random pick, or REST-normalized title). */
+  titleResolved: [title: string]
 }>()
 
 const liveHtml = ref<string | null>(null)
@@ -224,6 +226,10 @@ watch(liveHtml, async (html) => {
   await nextTick()
   const root = rendererRef.value?.$el as HTMLElement | undefined
   if (root) emit('parserReady', root)
+})
+
+watch(resolvedTitle, (title) => {
+  if (title) emit('titleResolved', title)
 })
 </script>
 
