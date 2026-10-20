@@ -3,8 +3,8 @@ import { cdxIconArticle } from '@wikimedia/codex-icons'
 
 definePage({
   meta: {
-    title: 'Article (live)',
-    description: "Template for an article page that's loaded from live data.",
+    title: 'Article',
+    description: 'Template for prototyping the article page.',
     category: 'template',
     platform: 'web',
     order: 2,
@@ -40,7 +40,7 @@ function onTitleResolved(title: string) {
 
 <template>
   <ChromeWrapper>
-    <ArticleLive :article="article" @title-resolved="onTitleResolved" />
+    <ArticleLive editable :article="article" @title-resolved="onTitleResolved" />
 
     <!-- Draw from Wikipedia's Vital articles instead of a purely random page: -->
     <!-- <ArticleLive source="vital" /> -->

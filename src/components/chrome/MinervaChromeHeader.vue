@@ -6,6 +6,7 @@ import { CdxButton, CdxIcon } from '@wikimedia/codex'
 import { resolveHeaderIcon } from '@/components/header/headerIcons'
 import type { HeaderItem } from '@/components/header/headerItems'
 import { MINERVA_DEFAULT_RIGHT } from './minervaHeaderDefaults'
+import { useWordmarkMainPageLink } from '@/composables/useWordmarkMainPageLink'
 import { globalTheme } from '@/theme'
 import type { Theme } from '@/theme'
 
@@ -28,7 +29,7 @@ interface Props {
   wordmarkSrc?: string
   /** Minerva wordmark; defaults to **`wordmarkSrc`** then EN constant. */
   mobileWordmarkSrc?: string
-  /** When true, default wordmark links to ProtoWiki home (`/`). */
+  /** When true, default wordmark links to the Main Page. */
   prototypingSettings?: boolean
 }
 
@@ -43,6 +44,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const effectiveTheme = computed<Theme>(() => props.theme ?? globalTheme.value)
+const wordmarkMainPageLink = useWordmarkMainPageLink()
 
 const wordmarkResolved = computed(
   () => props.mobileWordmarkSrc ?? props.wordmarkSrc ?? WIKIPEDIA_WORDMARK_EN,
@@ -135,7 +137,7 @@ function isExternalHref(href: string): boolean {
           class="minerva-chrome-header__brand"
           v-bind="
             props.prototypingSettings
-              ? { to: '/', 'aria-label': 'Visit the main page' }
+              ? { to: wordmarkMainPageLink, 'aria-label': 'Visit the main page' }
               : {}
           "
         >

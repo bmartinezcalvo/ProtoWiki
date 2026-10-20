@@ -10,6 +10,10 @@ interface ArticleLiveCommonProps {
   skin?: Skin
   theme?: Theme
   languagesCount?: number
+  /** Web Visual Editor: Edit tab opens in-place editor (ignored when **`app`**). */
+  editable?: boolean
+  /** Open edit mode once the article body has loaded (**`editable`** only). */
+  startInEditMode?: boolean
 }
 
 /** Fixed article: `article` set; the random-only props are forbidden. */
@@ -51,7 +55,7 @@ export type ArticleLiveProps = ArticleLiveFixedProps | ArticleLiveRandomProps
  * `parserReady` hands out a plain element, so `<Teleport>` and any Codex
  * component work with no plumbing.
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
 import { CdxMessage, CdxProgressBar } from '@wikimedia/codex'
 
 import ArticleRenderer from './ArticleRenderer.vue'
@@ -59,7 +63,12 @@ import ArticleWrapper from './ArticleWrapper.vue'
 import { fetchArticleBody } from './shared/fetchArticleBody'
 import { fetchArticleView, type ArticleView } from './shared/fetchArticleView'
 import { DEFAULT_RANDOM_SOURCE, selectRandomArticle } from './shared/selectRandomArticle'
+import VisualEditorArticleShell from '@/components/visual-editor/VisualEditorArticleShell.vue'
+import VisualEditorPageLayout from '@/components/visual-editor/VisualEditorPageLayout.vue'
+import { countArticleSuggestions } from '@/components/visual-editor/countArticleSuggestions'
+import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEditCount'
 import { wikiHostFromLang } from '@/config'
+import { globalSkin, PROTOWIKI_CHROME_SKIN } from '@/theme'
 
 interface Props {
   lang?: string
@@ -101,6 +110,8 @@ interface Props {
   theme?: Theme
   /** Forwarded **`ArticleWrapper`** → **`ArticleHeader`** (**`languagesCount` languages**). */
   languagesCount?: number
+  editable?: boolean
+  startInEditMode?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -116,7 +127,12 @@ const props = withDefaults(defineProps<Props>(), {
   skin: undefined,
   theme: undefined,
   languagesCount: undefined,
+  editable: false,
+  startInEditMode: false,
 })
+
+const editing = defineModel<boolean>('editing', { default: false })
+const suggestionCount = defineModel<number | null>('suggestionCount', { default: null })
 
 const emit = defineEmits<{
   /** Parser root, once the body is in the DOM — for `<Teleport>` and in-article overlays. */
@@ -125,12 +141,21 @@ const emit = defineEmits<{
   titleResolved: [title: string]
 }>()
 
+const effectiveEditable = computed(() => props.editable && !props.app)
+
+const inheritedSkin = inject(PROTOWIKI_CHROME_SKIN, null)
+const effectiveSkin = computed(
+  () => props.skin ?? inheritedSkin?.value ?? globalSkin.value,
+)
+
 const liveHtml = ref<string | null>(null)
 const error = ref<string | null>(null)
 const loading = ref(false)
 /** Lead-block metadata (title, description, image) — app articles only. */
 const view = ref<ArticleView | null>(null)
 const rendererRef = ref<InstanceType<typeof ArticleRenderer> | null>(null)
+const veShellRef = ref<InstanceType<typeof VisualEditorArticleShell> | null>(null)
+const veSidebarOpen = ref(false)
 
 /** Title shown in chrome — the live `view` title, the `article` prop, or the random pick. */
 const resolvedTitle = ref<string | null>(props.article ?? null)
@@ -138,18 +163,50 @@ const resolvedTitle = ref<string | null>(props.article ?? null)
 const defaultHost = computed(() => wikiHostFromLang(props.lang ?? 'en'))
 /** Host actually being read — `host` prop, `lang`, or the random language. */
 const resolvedHost = ref(props.host ?? defaultHost.value)
+const resolvedLang = ref(props.lang ?? 'en')
+
+const prefetchSuggestionCount = ref<number | null>(null)
+const { editCount, editCountReady } = useEffectiveEditorEditCount()
+
+const vePage = computed(() => {
+  if (!resolvedTitle.value || liveHtml.value === null) return null
+  return {
+    title: resolvedTitle.value,
+    lang: resolvedLang.value,
+    host: resolvedHost.value,
+  }
+})
 
 let loadAbort: AbortController | null = null
+
+function isAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === 'AbortError') return true
+  if (err instanceof Error && /abort/i.test(err.message)) return true
+  return false
+}
+
+async function refreshPrefetchSuggestionCount() {
+  if (!effectiveEditable.value || !liveHtml.value || !vePage.value) {
+    prefetchSuggestionCount.value = null
+    return
+  }
+  prefetchSuggestionCount.value = await countArticleSuggestions(
+    liveHtml.value,
+    vePage.value,
+    editCount.value,
+  )
+}
 
 async function fetchArticle(title: string, host: string, lang: string, signal: AbortSignal) {
   if (!title) return
 
   liveHtml.value = null
   view.value = null
+  prefetchSuggestionCount.value = null
+  veShellRef.value?.exitEditForNavigation()
 
   const [body, articleView] = await Promise.all([
     fetchArticleBody(title, host, { signal }),
-    // The lead block is the only consumer — web chrome takes its title from the body.
     props.app ? fetchArticleView(title, { signal, lang }) : Promise.resolve(null),
   ])
   if (signal.aborted) return
@@ -157,15 +214,23 @@ async function fetchArticle(title: string, host: string, lang: string, signal: A
   liveHtml.value = body.html
   view.value = articleView
   if (articleView) resolvedTitle.value = articleView.title
+  if (effectiveEditable.value) void refreshPrefetchSuggestionCount()
+  emit('titleResolved', title)
 }
 
-/**
- * Resolve which article to load, then fetch its body. When **`article`** is
- * set, this is the fixed page on the resolved host; when omitted, a random title
- * is *selected* (title-only) from the requested pool/language, and the host is
- * derived from that language.
- */
 async function resolveAndFetch() {
+  const host = props.host ?? defaultHost.value
+  const lang = props.lang ?? 'en'
+  if (
+    props.article &&
+    props.article === resolvedTitle.value &&
+    resolvedHost.value === host &&
+    resolvedLang.value === lang &&
+    liveHtml.value !== null
+  ) {
+    return
+  }
+
   loadAbort?.abort()
   loadAbort = new AbortController()
   const { signal } = loadAbort
@@ -177,7 +242,8 @@ async function resolveAndFetch() {
     if (props.article) {
       resolvedTitle.value = props.article
       resolvedHost.value = props.host ?? defaultHost.value
-      await fetchArticle(props.article, resolvedHost.value, props.lang ?? 'en', signal)
+      resolvedLang.value = props.lang ?? 'en'
+      await fetchArticle(props.article, resolvedHost.value, resolvedLang.value, signal)
       return
     }
 
@@ -192,10 +258,11 @@ async function resolveAndFetch() {
     })
     if (signal.aborted) return
     resolvedHost.value = wikiHostFromLang(selected.lang)
+    resolvedLang.value = selected.lang
     resolvedTitle.value = selected.title
     await fetchArticle(selected.title, resolvedHost.value, selected.lang, signal)
   } catch (err) {
-    if (signal.aborted) return
+    if (signal.aborted || isAbortError(err)) return
     error.value = err instanceof Error ? err.message : String(err)
     liveHtml.value = null
     view.value = null
@@ -209,7 +276,6 @@ watch(
     [
       props.host ?? defaultHost.value,
       props.article,
-      // App mode fetches the lead-block metadata alongside the body.
       props.app,
       props.source,
       (props.langs ?? []).join('|'),
@@ -222,19 +288,67 @@ watch(
 )
 
 watch(liveHtml, async (html) => {
-  if (!html) return
+  if (!html || effectiveEditable.value) return
   await nextTick()
   const root = rendererRef.value?.$el as HTMLElement | undefined
   if (root) emit('parserReady', root)
 })
 
-watch(resolvedTitle, (title) => {
-  if (title) emit('titleResolved', title)
+watch([editCount, editCountReady], () => {
+  if (editCountReady.value && effectiveEditable.value) void refreshPrefetchSuggestionCount()
 })
+
+function onEditClick() {
+  veShellRef.value?.onEditClick()
+}
+
+function onReadClick() {
+  veShellRef.value?.onReadClick()
+}
 </script>
 
 <template>
+  <VisualEditorPageLayout
+    v-if="effectiveEditable"
+    :sidebar-open="veSidebarOpen"
+    :editing="editing"
+    :skin="effectiveSkin"
+  >
+    <ArticleWrapper
+      :lang="props.lang"
+      :dir="props.dir"
+      :title="resolvedTitle ?? undefined"
+      :header="props.header"
+      :skin="props.skin"
+      :theme="props.theme"
+      :languages-count="props.languagesCount"
+      :app="props.app"
+      :description="view?.description"
+      :lead-image-url="view?.thumbnailUrl ?? undefined"
+      :active-view="editing ? 'edit' : 'read'"
+      @edit-click="onEditClick()"
+      @read-click="onReadClick()"
+    >
+      <VisualEditorArticleShell
+        ref="veShellRef"
+        v-model:editing="editing"
+        v-model:sidebar-open="veSidebarOpen"
+        v-model:suggestion-count="suggestionCount"
+        :loading="loading"
+        :error="error"
+        :live-html="liveHtml"
+        :page="vePage"
+        :skin="effectiveSkin"
+        :start-in-edit-mode="startInEditMode"
+        :prefetch-suggestion-count="prefetchSuggestionCount"
+        :lang="resolvedLang"
+        :dir="props.dir"
+        :theme="props.theme"
+      />
+    </ArticleWrapper>
+  </VisualEditorPageLayout>
   <ArticleWrapper
+    v-else
     :lang="props.lang"
     :dir="props.dir"
     :title="resolvedTitle ?? undefined"

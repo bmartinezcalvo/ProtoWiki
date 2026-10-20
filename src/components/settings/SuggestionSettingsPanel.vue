@@ -1,15 +1,20 @@
 <script setup lang="ts">
 /**
- * "Suggestion Mode settings" — opened from the chrome header main menu, in
- * the same style as ProtoWiki's mock user settings.
+ * "Suggestion Mode settings" — gallery toolbar or VE main menu, same style as
+ * ProtoWiki's other mock settings panels.
  */
 import { computed } from 'vue'
 import { CdxButton, CdxCheckbox, CdxField, CdxRadio, CdxTextInput, CdxToggleSwitch } from '@wikimedia/codex'
 
-import { SUGGESTION_TYPES } from './engine/checks'
-import { MAX_LIMIT, MIN_LIMIT, resetSuggestionSettings, suggestionSettings } from './settings'
+import { SUGGESTION_TYPES } from '@/components/visual-editor/engine/checks'
+import {
+  MAX_LIMIT,
+  MIN_LIMIT,
+  resetSuggestionSettings,
+  suggestionSettings,
+} from '@/components/visual-editor/settings'
 
-import '@/components/settings/settingsPanel.css'
+import './settingsPanel.css'
 
 const props = defineProps<{
   /** Suggestions detected in the current article (before the settings filter). */
@@ -42,6 +47,14 @@ const shortfall = computed(
     props.detectedCount != null &&
     props.detectedCount < suggestionSettings.limit,
 )
+
+/** Inverse of `suggestionSettings.firstTime` (production user option after first enable). */
+const hasTurnedOnSuggestionMode = computed({
+  get: () => !suggestionSettings.firstTime,
+  set: (on: boolean) => {
+    suggestionSettings.firstTime = !on
+  },
+})
 </script>
 
 <template>
@@ -49,7 +62,7 @@ const shortfall = computed(
     <div class="settings-panel__intro">
       <h2 class="settings-panel__title">Suggestion Mode settings</h2>
       <p class="settings-panel__description">
-        Preview Suggestion Mode with different suggestion types.
+        Configure how suggestions appear within the Visual Editor.
       </p>
     </div>
 
@@ -80,14 +93,14 @@ const shortfall = computed(
     </CdxField>
 
     <CdxField>
-      <CdxToggleSwitch v-model="suggestionSettings.firstTime">First time using Suggestion Mode</CdxToggleSwitch>
+      <CdxToggleSwitch v-model="hasTurnedOnSuggestionMode">User has turned on Suggestion Mode</CdxToggleSwitch>
       <template #help-text>
         On desktop, suggestions start turned off until the editor turns them on. On mobile they're always on.
       </template>
     </CdxField>
 
     <div>
-      <CdxButton weight="quiet" action="destructive" @click="resetSuggestionSettings">Reset settings</CdxButton>
+      <CdxButton @click="resetSuggestionSettings">Reset settings</CdxButton>
     </div>
   </div>
 </template>

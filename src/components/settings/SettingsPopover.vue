@@ -9,17 +9,35 @@ const props = defineProps<{
 }>()
 
 const open = ref(false)
-const anchor = ref<HTMLElement | null>(null)
+const triggerEl = ref<HTMLElement | null>(null)
+/** Popover placement anchor; defaults to the trigger wrapper, or a specific control when opening. */
+const popoverAnchor = ref<HTMLElement | null>(null)
 const panelId = `settings-popover-panel-${useId()}`
 
+function resolvePopoverAnchor(from?: HTMLElement | Event): HTMLElement | null {
+  if (from instanceof HTMLElement) return from
+  if (from instanceof Event && from.currentTarget instanceof HTMLElement) {
+    return from.currentTarget
+  }
+  return triggerEl.value
+}
+
 function toggle(): void {
+  if (!open.value) {
+    popoverAnchor.value = triggerEl.value
+  }
   open.value = !open.value
+}
+
+function openPopover(from?: HTMLElement | Event): void {
+  popoverAnchor.value = resolvePopoverAnchor(from)
+  open.value = true
 }
 
 /** Floating popovers have no scrim; dismiss when the pointer goes outside anchor + panel. */
 function isInsidePopoverTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Node)) return false
-  if (anchor.value?.contains(target)) return true
+  if (triggerEl.value?.contains(target)) return true
   const panel = document.getElementById(panelId)
   if (panel?.contains(target)) return true
   if (target instanceof Element && target.closest('.cdx-menu, .cdx-select-vue__menu')) return true
@@ -47,6 +65,7 @@ onBeforeUnmount(() => {
 })
 
 onMounted(() => {
+  popoverAnchor.value = triggerEl.value
   if (!props.restoreOpenKey) return
   try {
     if (sessionStorage.getItem(props.restoreOpenKey) === '1') {
@@ -61,12 +80,12 @@ onMounted(() => {
 
 <template>
   <div class="settings-popover">
-    <span ref="anchor" class="settings-popover__trigger">
-      <slot :open="open" :toggle="toggle" />
+    <span ref="triggerEl" class="settings-popover__trigger">
+      <slot :open="open" :toggle="toggle" :open-popover="openPopover" />
     </span>
     <CdxPopover
       v-model:open="open"
-      :anchor="anchor"
+      :anchor="popoverAnchor ?? triggerEl"
       placement="bottom-end"
       use-bottom-sheet="responsive"
       class="settings-popover__overlay"

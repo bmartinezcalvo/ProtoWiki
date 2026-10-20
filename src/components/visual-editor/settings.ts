@@ -6,7 +6,8 @@ import { isConfigMockEditorEditCount } from '@/config'
 import { SUGGESTION_TYPES, type SuggestionTypeId } from './engine/checks'
 
 /**
- * Suggestion Mode settings, edited from the chrome header main menu. Persisted
+ * Suggestion Mode settings, edited from the gallery toolbar or VE main menu.
+ * Persisted
  * per browser (a convenience only — the prototype works without storage).
  */
 export interface SuggestionSettings {
@@ -14,9 +15,9 @@ export interface SuggestionSettings {
   limit: number | null
   types: Record<SuggestionTypeId, boolean>
   /**
-   * First time in Suggestion Mode: production starts the desktop toggle off
-   * until the editor turns it on once (`visualeditor-editcheck-suggestions-toggle`).
-   * Mobile always starts with suggestions visible.
+   * First time in Suggestion Mode (`firstTime` true): production starts the desktop
+   * toggle off until the editor turns it on once. Edited as “Has turned on Suggestion
+   * Mode” in Suggestion Mode settings. Mobile always starts with suggestions visible.
    */
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */

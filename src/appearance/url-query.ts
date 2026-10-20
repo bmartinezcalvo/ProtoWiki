@@ -1,7 +1,7 @@
 import type { LocationQuery, RouteLocationNormalized, Router } from 'vue-router'
 
-/** Query params carried across navigations when already present. */
-export const PRESERVED_URL_QUERY_PARAMS = ['theme', 'skin', 'os', 'title'] as const
+/** Appearance query params carried across route changes (`?title=` is per-prototype, not preserved). */
+export const PRESERVED_URL_QUERY_PARAMS = ['theme', 'skin', 'os'] as const
 
 export type PreservedUrlQueryParam = (typeof PRESERVED_URL_QUERY_PARAMS)[number]
 
@@ -159,14 +159,26 @@ export function replaceRouteQueryUpdates(
   return replaceRouteQuery(to, mergedLocationQuery(to.query, updates))
 }
 
-/** Keep `?theme=`, `?skin=`, `?os=`, and `?title=` when navigating between routes. */
+/** Keep `?theme=`, `?skin=`, and `?os=` when navigating between routes. */
 export function preserveAppearanceQueryOnNavigation(instance: Router): void {
   instance.beforeEach((to, from) => {
     const missing = preservedQueryMissingFromRoute(to, from)
-    if (Object.keys(missing).length === 0) return true
+    let query: Record<string, string | string[]> = { ...to.query, ...missing }
+
+    if (to.path === '/' && query.title !== undefined) {
+      const { title: _title, ...rest } = query
+      query = rest
+    }
+
+    const changed =
+      Object.keys(missing).length > 0 ||
+      (to.path === '/' && to.query.title !== undefined)
+
+    if (!changed) return true
+
     return {
       path: to.path,
-      query: { ...to.query, ...missing },
+      query,
       hash: to.hash,
     }
   })

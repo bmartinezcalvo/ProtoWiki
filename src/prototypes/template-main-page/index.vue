@@ -44,7 +44,7 @@ onMounted(() => {
 <template>
   <ChromeWrapper>
     <!-- ArticleWrapper detects title "Main Page" and applies production Main Page header chrome. -->
-    <ArticleLive :article="effectiveTitle" @title-resolved="onTitleResolved" />
+    <ArticleLive editable :article="effectiveTitle" @title-resolved="onTitleResolved" />
 
     <!-- Other wikis use different main-page titles; set lang/host and article accordingly. -->
     <!-- <ArticleLive lang="fr" article="Wikipédia:Accueil principal" /> -->

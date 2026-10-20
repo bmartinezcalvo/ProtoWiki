@@ -6,6 +6,7 @@ import { cdxIconUserAvatarOutline } from '@wikimedia/codex-icons'
 
 import SettingsPopover from '@/components/settings/SettingsPopover.vue'
 import UserSettingsPanel from '@/components/settings/UserSettingsPanel.vue'
+import { useWordmarkMainPageLink } from '@/composables/useWordmarkMainPageLink'
 import type { HeaderItem } from '@/components/header/headerItems'
 import type { ChromeNavTool } from './headerNavTools'
 import MinervaChromeHeader from './MinervaChromeHeader.vue'
@@ -38,7 +39,7 @@ interface Props {
   /** Minerva bar only — override default **`right`** item array. */
   right?: HeaderItem[]
   /**
-   * When true, default tool controls open prototyping settings; wordmarks link to ProtoWiki home.
+   * When true, default tool controls open prototyping settings; wordmarks link to the Main Page.
    */
   prototypingSettings?: boolean
 }
@@ -58,6 +59,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const slots = useSlots()
+const wordmarkMainPageLink = useWordmarkMainPageLink()
 
 const effectiveSkin = computed<Skin>(() => props.skin ?? globalSkin.value)
 const effectiveTheme = computed<Theme>(() => props.theme ?? globalTheme.value)
@@ -120,7 +122,7 @@ const minervaMiddle = computed((): HeaderItem[] | undefined => {
                   RouterLink,
                   {
                     class: 'minerva-chrome-header__brand',
-                    to: '/',
+                    to: wordmarkMainPageLink.value,
                     'aria-label': 'Visit the main page',
                   },
                   logo,

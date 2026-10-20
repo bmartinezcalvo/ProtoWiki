@@ -19,12 +19,14 @@ import SettingsPopover from '@/components/settings/SettingsPopover.vue'
 import UserSettingsPanel from '@/components/settings/UserSettingsPanel.vue'
 import { useChromeSearchHandlers } from '@/composables/useChromeSearch'
 import { useConfig } from '@/composables/useConfig'
+import { useWordmarkMainPageLink } from '@/composables/useWordmarkMainPageLink'
 import { DEFAULT_CHROME_NAV_TOOLS, type ChromeNavTool } from './headerNavTools'
 import { globalTheme } from '@/theme'
 import type { Theme } from '@/theme'
 import Search, { type SearchSubmitPayload } from '../Search.vue'
 
 const chromeSearchHandlers = useChromeSearchHandlers()
+const wordmarkMainPageLink = useWordmarkMainPageLink()
 
 const { user } = useConfig()
 
@@ -51,7 +53,7 @@ interface Props {
    */
   navTools?: ChromeNavTool[]
   /**
-   * When true, appearance and user tools open prototyping settings; wordmark links to ProtoWiki home.
+   * When true, appearance and user tools open prototyping settings; wordmark links to the Main Page.
    */
   prototypingSettings?: boolean
 }
@@ -106,7 +108,7 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
           class="vector-chrome-header__brand-link"
           v-bind="
             props.prototypingSettings
-              ? { to: '/', 'aria-label': 'Visit the main page' }
+              ? { to: wordmarkMainPageLink, 'aria-label': 'Visit the main page' }
               : {}
           "
         >
@@ -152,26 +154,47 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
           <CdxIcon :icon="cdxIconSearch" />
         </CdxButton>
         <slot name="username">
-          <div v-if="isLoggedOut" class="vector-chrome-header__logged-out-toolbar">
-            <a
-              class="vector-chrome-header__text-link"
-              href="https://donate.wikimedia.org/"
-              rel="noopener noreferrer"
-            >
+          <SettingsPopover v-if="isLoggedOut && props.prototypingSettings">
+            <template #default="{ openPopover }">
+              <span class="vector-chrome-header__logged-out-toolbar">
+                <a
+                  class="vector-chrome-header__text-link"
+                  href="#"
+                  @click.prevent
+                >
+                  Donate
+                </a>
+                <a
+                  class="vector-chrome-header__text-link"
+                  href="#"
+                  @click.prevent="openPopover($event)"
+                >
+                  Create account
+                </a>
+                <a
+                  class="vector-chrome-header__text-link"
+                  href="#"
+                  @click.prevent="openPopover($event)"
+                >
+                  Log in
+                </a>
+              </span>
+            </template>
+            <template #panel>
+              <UserSettingsPanel />
+            </template>
+          </SettingsPopover>
+          <div
+            v-else-if="isLoggedOut"
+            class="vector-chrome-header__logged-out-toolbar"
+          >
+            <a class="vector-chrome-header__text-link" href="#" @click.prevent>
               Donate
             </a>
-            <a
-              class="vector-chrome-header__text-link"
-              href="https://en.wikipedia.org/w/index.php?title=Special:CreateAccount"
-              rel="noopener noreferrer"
-            >
+            <a class="vector-chrome-header__text-link" href="#" @click.prevent>
               Create account
             </a>
-            <a
-              class="vector-chrome-header__text-link"
-              href="https://en.wikipedia.org/w/index.php?title=Special:UserLogin"
-              rel="noopener noreferrer"
-            >
+            <a class="vector-chrome-header__text-link" href="#" @click.prevent>
               Log in
             </a>
           </div>
@@ -392,7 +415,7 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
 
 .vector-chrome-header__text-link {
   color: var(--color-progressive, #36c);
-  font-size: var(--font-size-medium, 1rem);
+  font-size: var(--font-size-small, 14px);
   font-weight: normal;
   line-height: 1.4;
   text-decoration: none;

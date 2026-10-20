@@ -254,7 +254,7 @@ onBeforeUnmount(() => {
         <CdxIcon :icon="cdxIconSpecialCharacter" />
       </button>
     </div>
-    <div class="ve-toolbar__group">
+    <div class="ve-toolbar__group ve-toolbar__group--trailing">
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Help">
         <CdxIcon :icon="cdxIconHelp" />
       </button>
@@ -431,16 +431,24 @@ onBeforeUnmount(() => {
   font-family: var(--font-family-base);
 }
 
+/* Below-only: not --box-shadow-medium (side glow); spread matches Vector 2022 VE. */
 .ve-toolbar--scrolled {
-  box-shadow:
-    0 4px 4px 0 rgba(0, 0, 0, 0.06),
-    0 0 8px 0 rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 1px -1px var(--box-shadow-color-alpha-base);
+}
+
+.ve-toolbar[data-skin='desktop']:has(.ve-toolbar__group--trailing) {
+  /* Trailing group uses auto margin so a wrapped second row hugs the right edge. */
+  justify-content: flex-start;
 }
 
 .ve-toolbar__group {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.ve-toolbar__group--trailing {
+  margin-inline-start: auto;
 }
 
 .ve-toolbar__btn {
@@ -617,6 +625,8 @@ onBeforeUnmount(() => {
   height: 42px;
   min-width: 40px;
   padding: 5px;
+  /* Badge sits on the bulb corner (outside the 20px icon box); Codex sets overflow:hidden. */
+  overflow: visible;
 }
 
 .ve-toolbar__suggestions--on .cdx-icon {

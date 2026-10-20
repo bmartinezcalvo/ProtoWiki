@@ -12,8 +12,8 @@ or **`MinervaChromeHeader`** (mobile skin) based on effective skin:
 
 | Skin | Component | Chrome feel | Notes |
 | --- | --- | --- | --- |
-| `desktop` | **`VectorChromeHeader`** | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). When **`prototypingSettings`** (default **`true`**) and logged in, **appearance** opens web appearance settings (no App OS) and **user** opens mock user settings; wordmarks link to **`/`**. Main-menu glyph is icon-only (mock) unless **`#menu`** overrides. Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon. |
-| `mobile` | **`MinervaChromeHeader`** | **Minerva-style** | Grey elevated bar: menu · wordmark · search + notifications + user — prop-driven **`left`** / **`middle`** / **`right`** item arrays. Default user control opens mock user settings when **`prototypingSettings`**; default wordmark links to **`/`** when **`prototypingSettings`**. **`navTools`** is ignored. |
+| `desktop` | **`VectorChromeHeader`** | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). When **`prototypingSettings`** (default **`true`**) and logged in, **appearance** opens web appearance settings (no App OS) and **user** opens mock user settings; wordmarks link to **`?title=Main Page`** on the **current prototype route** (see **`useWordmarkMainPageLink`**). Main-menu glyph is icon-only (mock) unless **`#menu`** overrides. Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon. |
+| `mobile` | **`MinervaChromeHeader`** | **Minerva-style** | Grey elevated bar: menu · wordmark · search + notifications + user — prop-driven **`left`** / **`middle`** / **`right`** item arrays. Default user control opens mock user settings when **`prototypingSettings`**; default wordmark links to the **Main Page** when **`prototypingSettings`**. **`navTools`** is ignored. |
 
 **`ChromeFooter`** matches the skin:
 
@@ -45,7 +45,7 @@ Public skin-aware delegator — import directly or use via **`ChromeWrapper`'s**
 | `left` | `HeaderItem[]` | Minerva default | **Mobile only** — override Minerva **`left`** region |
 | `middle` | `HeaderItem[]` | built-in wordmark | **Mobile only** — override Minerva **`middle`** region |
 | `right` | `HeaderItem[]` | Minerva default | **Mobile only** — override Minerva **`right`** region |
-| `prototypingSettings` | `boolean` | `true` | **Both skins:** when **`true`**, default appearance/user tools open prototyping popovers and wordmarks link to ProtoWiki home; when **`false`**, those controls stay mock-only and wordmarks are static |
+| `prototypingSettings` | `boolean` | `true` | **Both skins:** when **`true`**, default appearance/user tools open prototyping popovers and wordmarks link to the **Main Page**; when **`false`**, those controls stay mock-only and wordmarks are static |
 
 `HeaderItem` matches **`AppChromeHeader`** (`link` / `button` / `component` / `title` with kebab-case icon names).
 
@@ -140,7 +140,7 @@ Use them directly when:
 
 - You want the chrome but with a non-default layout between header and
   footer (e.g., a 3-column layout with sticky toolbars that isn't covered
-  by `ArticleLive` / `ArticleSnapshot` / `ArticleCustom` / `ArticleWrapper` / `ArticleRenderer` /
+  by `ArticleLive` / `ArticleCustom` / `ArticleWrapper` / `ArticleRenderer` /
   `SpecialPageWrapper`).
 - You want the header but no footer (or vice versa).
 - You're building your own wrapper and the new wrapper genuinely warrants
@@ -166,7 +166,7 @@ import ChromeFooter from '@/components/chrome/ChromeFooter.vue'
 ## Inheriting skin/theme inside `ChromeWrapper`
 
 `ChromeWrapper` **provides** effective skin and theme to descendants.
-**`ArticleLive`**, **`ArticleSnapshot`**, **`ArticleCustom`**, **`ArticleWrapper`**, **`ArticleRenderer`** **inject** them when their own
+**`ArticleLive`**, **`ArticleCustom`**, **`ArticleWrapper`**, **`ArticleRenderer`** **inject** them when their own
 `skin` / `theme` props are omitted, so article columns and special-page
 typography track embedded `<ChromeWrapper skin="mobile">` previews without
 repeating props on every child.

@@ -213,7 +213,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
           <a href="#" class="article-header__tab" @click.prevent="$emit('historyClick')">
             View history
           </a>
-          <div class="article-header__watch-bookmark">
+          <div v-if="!isLoggedOut" class="article-header__watch-bookmark">
             <CdxButton
               class="article-header__watch"
               action="progressive"
@@ -267,14 +267,6 @@ function onLanguagePick(row: ArticleLanguageLink) {
           @click="$emit('downloadClick')"
         >
           <CdxIcon :icon="cdxIconDownload" />
-        </button>
-        <button
-          type="button"
-          class="article-header__icon-tool"
-          aria-label="Watch"
-          @click="$emit('bookmarkClick')"
-        >
-          <CdxIcon :icon="cdxIconStar" />
         </button>
         <button
           type="button"

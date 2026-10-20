@@ -11,6 +11,7 @@ definePage({
     description: 'A playground of various menu components.',
     category: 'example',
     platform: 'web',
+    order: 1,
     icon: cdxIconLogoCodex,
   },
 })

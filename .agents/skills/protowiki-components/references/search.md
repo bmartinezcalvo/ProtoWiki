@@ -35,7 +35,7 @@ provideChromeSearchHandlers({
 })
 ```
 
-**Reference:** **`src/prototypes/template-article-live/`** loads the picked title
+**Reference:** **`src/prototypes/template-article/`** loads the picked title
 into **`ArticleLive`**.
 
 ## Props

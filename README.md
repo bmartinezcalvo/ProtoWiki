@@ -196,9 +196,14 @@ Alternatively, load a specific article by passing the article name to the `Artic
 </template>
 ```
 
-To craft a static hand-written article page, use the `ArticleCustom` component.
+To craft a static hand-written article page, use `ArticleCustom` (or compose `ArticleWrapper` and `ArticleRenderer` directly). See [`protowiki-components` → `article.md`](.agents/skills/protowiki-components/references/article.md) and the **`example-custom-article`** gallery route for a worked demo.
 
 ```vue
+<script setup>
+import ArticleCustom from '@/components/article/ArticleCustom.vue'
+import ChromeWrapper from '@/components/chrome/ChromeWrapper.vue'
+</script>
+
 <template>
   <ChromeWrapper>
     <ArticleCustom title="My custom article">
