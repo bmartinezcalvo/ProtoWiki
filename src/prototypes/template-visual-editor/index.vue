@@ -280,12 +280,13 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
 
 <style>
 /* Vector toasts: top-right (see updateToastOffset). */
+/* Same width as the suggestion cards (325px). */
 html.ve-template-vector .cdx-toast-container {
   top: var(--ve-toast-top, 16px);
   bottom: auto;
   left: auto;
   right: 16px;
-  width: 32rem;
+  width: 325px;
   max-width: calc(100% - 32px);
 }
 

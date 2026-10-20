@@ -491,8 +491,40 @@ function scrollToFinding(f: Finding, block: ScrollLogicalPosition = 'center') {
   window.scrollTo({ top: Math.max(0, rect.top + window.scrollY - offset), behavior: 'smooth' })
 }
 
+/** Section editing with nothing to suggest here, but suggestions in other sections. */
+const onlyElsewhere = computed(
+  () => !!sectionOnly.value && !pendingDisplayed.value.length && outOfScope.value.above + outOfScope.value.below > 0,
+)
+
+/** Arrow on the banner: towards the suggestions (for a section, where the others are). */
+const bannerDirection = computed(() =>
+  onlyElsewhere.value ? (outOfScope.value.below > 0 ? 'down' : 'up') : offscreenDirection.value,
+)
+
+/** From a section with no suggestions: open the full page and go to the nearest one. */
+function viewSuggestionsElsewhere() {
+  const target = sectionElement()
+  const direction = outOfScope.value.below > 0 ? 1 : -1
+  editFullPage(direction)
+  setTimeout(() => {
+    const items = pendingDisplayed.value
+    if (!items.length) return
+    const next =
+      direction === 1
+        ? items.find((f) => target && target.compareDocumentPosition(f.element ?? f.ranges[0].startContainer) & Node.DOCUMENT_POSITION_FOLLOWING)
+        : [...items].reverse().find((f) => target && target.compareDocumentPosition(f.element ?? f.ranges[0].startContainer) & Node.DOCUMENT_POSITION_PRECEDING)
+    const f = next ?? items[0]
+    scrollToFinding(f)
+    setTimeout(() => focus(f), 600)
+  }, 300)
+}
+
 /** Production: scroll to the nearest action, preferring the one above. */
 function viewSuggestions() {
+  if (onlyElsewhere.value) {
+    viewSuggestionsElsewhere()
+    return
+  }
   const wrap = wrapRef.value
   if (!wrap) return
   const origin = wrap.getBoundingClientRect()
@@ -1503,7 +1535,7 @@ const titleFor = (f: Finding) =>
         >
           <div class="ve-view-pill" role="group" aria-label="View suggestions">
             <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
-              <CdxIcon :icon="offscreenDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
+              <CdxIcon :icon="bannerDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
               View suggestions
             </CdxButton>
             <CdxButton
@@ -1522,12 +1554,12 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: View suggestions banner -->
     <div
-      v-if="isMobile && !review && suggestionsOn && !detecting && !seenOnMobile && !sheetOpen && pendingDisplayed.length && !bannerDismissed"
+      v-if="isMobile && !review && suggestionsOn && !detecting && !seenOnMobile && !sheetOpen && (pendingDisplayed.length || onlyElsewhere) && !bannerDismissed"
       class="ve-mobile-banner"
     >
       <div class="ve-view-pill ve-view-pill--mobile" role="group" aria-label="View suggestions">
         <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
-          <CdxIcon :icon="offscreenDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
+          <CdxIcon :icon="bannerDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
           View suggestions
         </CdxButton>
         <CdxButton
@@ -1609,18 +1641,14 @@ const titleFor = (f: Finding) =>
     <div v-if="isMobile && toast" :key="toast.id" class="ve-mobile-toast" role="status" aria-live="polite">{{ toast.text }}</div>
     <CdxToast v-else-if="toast" :key="toast.id" type="notice" @user-dismissed="toast = null">{{ toast.text }}</CdxToast>
 
-    <CdxDialog
-      v-model:open="leaveOpen"
-      class="ve-leave"
-      title="Are you sure?"
-      use-close-button
-      :stacked-actions="isMobile"
-      :primary-action="{ label: 'Discard edits', actionType: 'destructive' }"
-      :default-action="{ label: 'Continue editing' }"
-      @primary="discardEdits"
-      @default="leaveOpen = false"
-    >
+    <CdxDialog v-model:open="leaveOpen" class="ve-leave" title="Are you sure?" use-close-button>
       Are you sure you want to leave editing mode without publishing first?
+      <template #footer>
+        <div class="ve-leave__actions" :class="{ 've-leave__actions--stacked': isMobile }">
+          <CdxButton action="destructive" @click="discardEdits">Discard edits</CdxButton>
+          <CdxButton @click="leaveOpen = false">Continue editing</CdxButton>
+        </div>
+      </template>
     </CdxDialog>
 
     <CitoidDialog
@@ -1663,6 +1691,8 @@ const titleFor = (f: Finding) =>
 
 .ve-editor__layout {
   position: relative;
+  /* Keep child margins inside, so the mobile gutter spans the "Edit full page" areas too. */
+  display: flow-root;
 }
 
 .ve-editor__tagline {
@@ -1689,6 +1719,21 @@ const titleFor = (f: Finding) =>
 .ve-editor--loading .ve-editor__surface {
   opacity: 0.5;
   pointer-events: none;
+}
+
+.ve-leave__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ve-leave__actions--stacked {
+  flex-direction: column;
+}
+
+.ve-leave__actions--stacked .cdx-button {
+  width: 100%;
+  max-width: none;
 }
 
 .ve-editor :deep(.ve-section-hidden) {
@@ -1759,8 +1804,14 @@ const titleFor = (f: Finding) =>
   margin-right: 60px;
 }
 
+.ve-full-page {
+  align-items: flex-start;
+}
+
+/* Room for the skeleton lines under the button (so the gutter runs behind them too). */
 .ve-full-page--bottom {
   margin-bottom: 1.5em;
+  padding-bottom: 3.5em;
 }
 
 .ve-full-page__btn {
@@ -2102,8 +2153,8 @@ const titleFor = (f: Finding) =>
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 20px;
+  width: 20px;
+  height: 24px;
   flex-shrink: 0;
 }
 
@@ -2140,8 +2191,8 @@ const titleFor = (f: Finding) =>
 
 .ve-card__title {
   flex: 1;
-  font-size: var(--font-size-small, 14px);
-  line-height: 20px;
+  font-size: var(--font-size-medium, 16px);
+  line-height: 24px;
   color: var(--color-base, #202122);
 }
 
@@ -2155,8 +2206,8 @@ const titleFor = (f: Finding) =>
 
 .ve-card__text {
   margin: 0;
-  font-size: var(--font-size-small, 14px);
-  line-height: 22px;
+  font-size: var(--font-size-medium, 16px);
+  line-height: 24px;
   color: var(--color-subtle, #54595d);
 }
 
@@ -2173,7 +2224,7 @@ const titleFor = (f: Finding) =>
   gap: 4px;
   padding-top: 8px;
   border-top: 1px solid var(--border-color-muted, #dadde3);
-  font-size: var(--font-size-small, 14px);
+  font-size: var(--font-size-medium, 16px);
   color: var(--color-subtle, #54595d);
 }
 
@@ -2257,7 +2308,7 @@ const titleFor = (f: Finding) =>
   padding-right: 60px;
 }
 
-.ve-editor[data-skin='mobile'].ve-editor--suggestions .ve-editor__surface-wrap::after {
+.ve-editor[data-skin='mobile'].ve-editor--suggestions .ve-editor__layout::after {
   content: '';
   position: absolute;
   top: 0;

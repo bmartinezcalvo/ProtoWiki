@@ -128,8 +128,8 @@ const footerIcon = computed(() =>
 .finding-body__description,
 .finding-body__prompt {
   margin: 0;
-  font-size: var(--font-size-small, 14px);
-  line-height: var(--line-height-small, 22px);
+  font-size: var(--font-size-medium, 16px);
+  line-height: var(--line-height-medium, 24px);
   color: var(--color-subtle, #54595d);
 }
 
