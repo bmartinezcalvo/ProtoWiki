@@ -274,16 +274,34 @@ const visualDiff = computed(() => props.diff.map((d) => wordDiff(d.before, d.aft
 </style>
 
 <style scoped>
+/* ProcessDialog head: buttons run the full height of the bar, no padding. */
 .ve-save__head {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
+  align-items: stretch;
+  min-height: 48px;
+  padding: 0;
   border-bottom: 1px solid var(--border-color-subtle, #c8ccd1);
+}
+
+.ve-save__head .cdx-button {
+  min-height: 48px;
+  height: auto;
+  border-radius: 0;
+}
+
+.ve-save__head .cdx-button--weight-quiet {
+  min-width: 48px;
+  width: 48px;
+  padding: 0;
+}
+
+.ve-save__head .cdx-button--weight-primary {
+  padding-inline: 16px;
 }
 
 .ve-save__title {
   flex: 1;
+  align-self: center;
   text-align: center;
   font-weight: var(--font-weight-bold, 700);
   font-size: var(--font-size-medium, 16px);

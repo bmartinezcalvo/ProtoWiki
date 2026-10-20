@@ -414,6 +414,8 @@ function highlightState(f: Finding): string {
 
 const cardEls = new Map<string, HTMLElement>()
 const cardTops = reactive(new Map<string, number>())
+/** Before publishing: where the single card sits (heading above, pager below). */
+const reviewBox = ref<{ top: number; height: number } | null>(null)
 const sidebarHeight = ref(0)
 const sidebarRef = ref<HTMLElement | null>(null)
 
@@ -462,6 +464,13 @@ function layoutCards() {
   }
   cardTops.clear()
   for (const [id, t] of tops) cardTops.set(id, t)
+  const reviewed = review.value ? items[0] : null
+  if (reviewed) {
+    // Card next to its highlight, with room for the heading above it.
+    const top = Math.max(tops.get(reviewed.id) ?? 0, 52)
+    cardTops.set(reviewed.id, top)
+    reviewBox.value = { top, height: height(reviewed) }
+  } else reviewBox.value = null
   sidebarHeight.value = Math.max(0, ...items.map((f) => (tops.get(f.id) ?? 0) + height(f)))
 }
 
@@ -1475,6 +1484,21 @@ const titleFor = (f: Finding) =>
         :style="{ minHeight: `${sidebarHeight}px` }"
         :aria-label="review ? STR.reviewChanges : 'Suggestions'"
       >
+        <!-- Before publishing: "Review changes" heading above the card, "N of M" below it -->
+        <template v-if="review && reviewBox">
+          <div class="ve-review-heading" :style="{ top: `${reviewBox.top - 52}px` }">
+            {{ STR.reviewChanges }}
+          </div>
+          <div class="ve-review-pager" :style="{ top: `${reviewBox.top + reviewBox.height + 8}px` }">
+            <span>{{ STR.nOfM(pagerIndex + 1, pagerItems.length) }}</span>
+            <CdxButton weight="quiet" aria-label="prev" :disabled="pagerIndex <= 0" @click="goTo(-1)">
+              <CdxIcon class="ve-icon-flip" :icon="cdxIconExpand" />
+            </CdxButton>
+            <CdxButton weight="quiet" aria-label="next" :disabled="pagerIndex >= pagerItems.length - 1" @click="goTo(1)">
+              <CdxIcon :icon="cdxIconExpand" />
+            </CdxButton>
+          </div>
+        </template>
         <template v-for="f in review ? (currentReview ? [currentReview] : []) : displayed" :key="f.id">
           <div
             :ref="(el) => setCardEl(f.id, el)"
@@ -1534,15 +1558,6 @@ const titleFor = (f: Finding) =>
               </button>
               <div v-if="focusedId === f.id || review" class="ve-card__content">
                 <FindingBody :finding="f" skin="desktop" :busy="busyId === f.id" @act="(a, r) => act(f, a, r)" />
-                <div v-if="review" class="ve-card__pager">
-                  <span>{{ STR.nOfM(pagerIndex + 1, pagerItems.length) }}</span>
-                  <CdxButton weight="quiet" aria-label="prev" :disabled="pagerIndex <= 0" @click="goTo(-1)">
-                    <CdxIcon class="ve-icon-flip" :icon="cdxIconExpand" />
-                  </CdxButton>
-                  <CdxButton weight="quiet" aria-label="next" :disabled="pagerIndex >= pagerItems.length - 1" @click="goTo(1)">
-                    <CdxIcon :icon="cdxIconExpand" />
-                  </CdxButton>
-                </div>
               </div>
             </template>
           </div>
@@ -1600,7 +1615,7 @@ const titleFor = (f: Finding) =>
       v-if="isMobile && sheetOpen && (sheetFinding || review)"
       ref="sheetRef"
       class="ve-sheet"
-      :class="{ 've-sheet--check': sheetFinding?.mode === 'check', 've-sheet--entering': sheetEntering }"
+      :class="{ 've-sheet--check': (review ? currentReview : sheetFinding)?.mode === 'check', 've-sheet--entering': sheetEntering }"
       role="dialog"
       :aria-label="review ? STR.reviewChanges : 'Suggestion'"
     >
@@ -2204,6 +2219,30 @@ const titleFor = (f: Finding) =>
 }
 
 
+.ve-review-heading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color-subtle, #c8ccd1);
+  font-size: var(--font-size-medium, 16px);
+  font-weight: var(--font-weight-bold, 700);
+  line-height: 24px;
+  color: var(--color-base, #202122);
+}
+
+.ve-review-pager {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  font-size: var(--font-size-medium, 16px);
+  color: var(--color-subtle, #54595d);
+}
+
 .ve-card__pager {
   display: flex;
   align-items: center;
@@ -2433,6 +2472,11 @@ const titleFor = (f: Finding) =>
 
 .ve-sheet__header .cdx-icon {
   color: var(--color-progressive, #36c);
+}
+
+.ve-sheet--check .ve-sheet__header > .cdx-icon,
+.ve-sheet--check .ve-sheet__header .cdx-icon:first-child {
+  color: var(--color-warning, #886425) !important;
 }
 
 .ve-sheet--check .ve-sheet__header .cdx-icon {
