@@ -174,6 +174,7 @@ function editFullPage(direction: -1 | 1 = 1) {
   const before = target?.getBoundingClientRect().top ?? 0
   surface.querySelectorAll('.ve-section-hidden').forEach((el) => el.classList.remove('ve-section-hidden'))
   sectionOnly.value = null
+  layoutMinHeight.value = undefined
   scopeVersion.value++
   nextTick(() => {
     if (target) window.scrollBy({ top: target.getBoundingClientRect().top - before })
@@ -216,6 +217,25 @@ const outOfScope = computed(() => {
   }
   return result
 })
+
+/**
+ * Minerva section editing opens at the section heading, right under the
+ * toolbar: the top "Edit full page" area is only revealed by scrolling up.
+ * The layout gets enough height for that, however short the section is.
+ */
+const layoutRef = ref<HTMLElement | null>(null)
+const layoutMinHeight = ref<string | undefined>(undefined)
+
+function scrollPastTopButton() {
+  const heading = sectionElement()?.querySelector(':scope > :is(h2, h3, h4, h5, h6)')
+  const layout = layoutRef.value
+  if (!heading || !layout) return
+  const toolbar = 48
+  const headingTop = heading.getBoundingClientRect().top + window.scrollY
+  const layoutTop = layout.getBoundingClientRect().top + window.scrollY
+  layoutMinHeight.value = `${headingTop - layoutTop + window.innerHeight}px`
+  nextTick(() => window.scrollTo({ top: Math.max(0, headingTop - toolbar - 8) }))
+}
 
 /** Desktop: full page, scrolled so the section heading sits under the toolbar. */
 function scrollToSection(id: string) {
@@ -1275,6 +1295,7 @@ onMounted(async () => {
   loadingEditor.value = false
   emit('sidebar', suggestionsOn.value && !isMobile.value)
   if (!isMobile.value && props.section) nextTick(() => scrollToSection(props.section!))
+  if (sectionOnly.value) nextTick(scrollPastTopButton)
   scheduleLayout()
   await detection
   updateViewport()
@@ -1353,7 +1374,7 @@ const titleFor = (f: Finding) =>
     <!-- Vector: the tagline sits under the editor toolbar. -->
     <p v-if="!isMobile" class="ve-editor__tagline">From Wikipedia, the free encyclopedia</p>
 
-    <div class="ve-editor__layout">
+    <div ref="layoutRef" class="ve-editor__layout" :style="{ minHeight: sectionOnly ? layoutMinHeight : undefined }">
       <div v-if="sectionOnly && !loadingEditor && !sectionEdges.first" class="ve-full-page ve-full-page--top">
         <div class="ve-full-page__skeleton" aria-hidden="true"><div /><div /><div /><div /></div>
         <CdxButton class="ve-full-page__btn" @click="editFullPage(-1)">
