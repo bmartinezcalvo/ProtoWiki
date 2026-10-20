@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 
 import { CdxPopover } from '@wikimedia/codex'
 
@@ -10,10 +10,41 @@ const props = defineProps<{
 
 const open = ref(false)
 const anchor = ref<HTMLElement | null>(null)
+const panelId = `settings-popover-panel-${useId()}`
 
 function toggle(): void {
   open.value = !open.value
 }
+
+/** Floating popovers have no scrim; dismiss when the pointer goes outside anchor + panel. */
+function isInsidePopoverTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Node)) return false
+  if (anchor.value?.contains(target)) return true
+  const panel = document.getElementById(panelId)
+  if (panel?.contains(target)) return true
+  if (target instanceof Element && target.closest('.cdx-menu, .cdx-select-vue__menu')) return true
+  return false
+}
+
+function onDocumentPointerDown(event: PointerEvent): void {
+  if (!open.value || isInsidePopoverTarget(event.target)) return
+  open.value = false
+}
+
+watch(open, (isOpen) => {
+  if (isOpen) {
+    // Defer so the opening click does not immediately dismiss.
+    requestAnimationFrame(() => {
+      document.addEventListener('pointerdown', onDocumentPointerDown, true)
+    })
+  } else {
+    document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  }
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+})
 
 onMounted(() => {
   if (!props.restoreOpenKey) return
@@ -40,7 +71,7 @@ onMounted(() => {
       use-bottom-sheet="responsive"
       class="settings-popover__overlay"
     >
-      <div @click.stop>
+      <div :id="panelId" class="settings-popover__panel" @click.stop>
         <slot name="panel" />
       </div>
     </CdxPopover>
@@ -58,13 +89,25 @@ onMounted(() => {
 }
 </style>
 
-<!-- Teleported popover: allow the select menu to extend past the scrollable body. -->
+<!-- Teleported popover: scroll on Codex `.cdx-popover__body` (select menus are portaled). -->
 <style>
 .settings-popover__overlay.cdx-popover:not(.cdx-popover--bottom-sheet) {
   max-width: min(var(--size-2400), calc(100vw - var(--spacing-200)));
 }
 
-.settings-popover__overlay .cdx-popover__body {
-  overflow: visible;
+/*
+ * Floating `.cdx-popover` padding (16px) sits outside `.cdx-popover__body`, so a default
+ * body scroll leaves the scrollbar inset from the border. Extend the scrollport to the
+ * popover edge; keep content aligned with Codex padding.
+ */
+.settings-popover__overlay.cdx-popover:not(.cdx-popover--bottom-sheet) .cdx-popover__body {
+  min-height: 0;
+  margin: -16px;
+  padding: 16px;
+}
+
+.settings-popover__overlay .settings-popover__panel {
+  box-sizing: border-box;
+  width: 100%;
 }
 </style>

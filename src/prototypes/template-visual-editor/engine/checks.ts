@@ -11,6 +11,7 @@ import {
   compareRanges,
   contentsRange,
   elementRange,
+  transclusionDisplayElement,
   hasOpaqueAncestor,
   headingLevel,
   internalLinksIn,
@@ -228,11 +229,18 @@ function isCitationNeededTemplate(el: Element, titles: Set<string>): boolean {
 
 export function detectCitationNeeded(d: DetectContext, titles: Set<string>): Finding[] {
   const out: Finding[] = []
+  const seenAbout = new Set<string>()
   d.ctx.root.querySelectorAll('[typeof~="mw:Transclusion"]').forEach((el) => {
     if (/^(DIV|TABLE|SECTION|FIGURE|UL|OL|P)$/.test(el.tagName)) return
     if (isInReferenceList(el) || (el.parentElement && hasOpaqueAncestor(el.parentElement, d.ctx))) return
+    const about = el.getAttribute('about')
+    if (about) {
+      if (seenAbout.has(about)) return
+      seenAbout.add(about)
+    }
     const target = templateTarget(el)
     if (!target || !titles.has(target.title)) return
+    const anchor = transclusionDisplayElement(d.ctx.root, el)
     const date = target.params?.date?.wt
     const reason = target.params?.reason?.wt
     let description = `<p>${S.citationNeeded.description}${date ? ` (${date})` : ''}</p>`
@@ -246,8 +254,8 @@ export function detectCitationNeeded(d: DetectContext, titles: Set<string>): Fin
       footerHtml: S.citationNeeded.footer,
       footerIcon: 'userAvatar',
       choices: [{ action: 'add', label: S.citationNeeded.accept }, DISMISS],
-      ranges: [elementRange(el)],
-      element: el,
+      ranges: [elementRange(anchor)],
+      element: anchor,
     })
   })
   return out
@@ -426,11 +434,32 @@ export function detectDuplicateLink(d: DetectContext): Finding[] {
 
 // ── externalLink ─────────────────────────────────────────────────────────────
 
+/** enwiki `MediaWiki:Editcheck-config.json` → `externalLink.ignoreSections`. */
+const EXTERNAL_LINK_CONFIG = {
+  ignoreSections: [
+    'notes',
+    'notes and references',
+    'references',
+    'references and further reading',
+    'sources',
+    'footnotes',
+    'citations',
+    'external links',
+    'external websites',
+    'weblinks',
+    'see also',
+    'further reading',
+    'bibliography',
+    'publications',
+    'works',
+  ],
+}
+
 export async function detectExternalLink(d: DetectContext): Promise<Finding[]> {
   const interwiki = await fetchInterwikiPatterns(d.host)
   const out: Finding[] = []
   for (const info of d.blocks) {
-    if (!isInValidSection(info, {})) continue
+    if (!isInValidSection(info, { ignoreSections: EXTERNAL_LINK_CONFIG.ignoreSections })) continue
     const run = d.runs.get(info.block)!
     const anchors = new Set<HTMLAnchorElement>()
     for (const seg of run.segments) {

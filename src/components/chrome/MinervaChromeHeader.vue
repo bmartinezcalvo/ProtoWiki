@@ -28,6 +28,8 @@ interface Props {
   wordmarkSrc?: string
   /** Minerva wordmark; defaults to **`wordmarkSrc`** then EN constant. */
   mobileWordmarkSrc?: string
+  /** When true, default wordmark links to ProtoWiki home (`/`). */
+  prototypingSettings?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -37,6 +39,7 @@ const props = withDefaults(defineProps<Props>(), {
   right: undefined,
   wordmarkSrc: undefined,
   mobileWordmarkSrc: undefined,
+  prototypingSettings: true,
 })
 
 const effectiveTheme = computed<Theme>(() => props.theme ?? globalTheme.value)
@@ -126,18 +129,22 @@ function isExternalHref(href: string): boolean {
       </div>
 
       <div v-if="showMiddle" class="minerva-chrome-header__middle">
-        <RouterLink
+        <component
+          :is="props.prototypingSettings ? RouterLink : 'span'"
           v-if="useDefaultWordmark"
           class="minerva-chrome-header__brand"
-          to="/"
-          aria-label="Visit the main page"
+          v-bind="
+            props.prototypingSettings
+              ? { to: '/', 'aria-label': 'Visit the main page' }
+              : {}
+          "
         >
           <img
             class="minerva-chrome-header__wordmark-img"
             :src="wordmarkResolved"
             alt="Wikipedia"
           />
-        </RouterLink>
+        </component>
         <template v-else v-for="(item, index) in effectiveMiddle" :key="`middle-${index}`">
           <component
             v-if="item.type === 'component'"

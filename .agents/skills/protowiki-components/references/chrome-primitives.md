@@ -12,8 +12,8 @@ or **`MinervaChromeHeader`** (mobile skin) based on effective skin:
 
 | Skin | Component | Chrome feel | Notes |
 | --- | --- | --- | --- |
-| `desktop` | **`VectorChromeHeader`** | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). Main-menu glyph is icon-only (mock). Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon. |
-| `mobile` | **`MinervaChromeHeader`** | **Minerva-style** | Grey elevated bar: menu · wordmark · search + notifications + user — prop-driven **`left`** / **`middle`** / **`right`** item arrays. **`navTools`** is ignored. |
+| `desktop` | **`VectorChromeHeader`** | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). When **`prototypingSettings`** (default **`true`**) and logged in, **appearance** opens web appearance settings (no App OS) and **user** opens mock user settings; wordmarks link to **`/`**. Main-menu glyph is icon-only (mock) unless **`#menu`** overrides. Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon. |
+| `mobile` | **`MinervaChromeHeader`** | **Minerva-style** | Grey elevated bar: menu · wordmark · search + notifications + user — prop-driven **`left`** / **`middle`** / **`right`** item arrays. Default user control opens mock user settings when **`prototypingSettings`**; default wordmark links to **`/`** when **`prototypingSettings`**. **`navTools`** is ignored. |
 
 **`ChromeFooter`** matches the skin:
 
@@ -45,6 +45,7 @@ Public skin-aware delegator — import directly or use via **`ChromeWrapper`'s**
 | `left` | `HeaderItem[]` | Minerva default | **Mobile only** — override Minerva **`left`** region |
 | `middle` | `HeaderItem[]` | built-in wordmark | **Mobile only** — override Minerva **`middle`** region |
 | `right` | `HeaderItem[]` | Minerva default | **Mobile only** — override Minerva **`right`** region |
+| `prototypingSettings` | `boolean` | `true` | **Both skins:** when **`true`**, default appearance/user tools open prototyping popovers and wordmarks link to ProtoWiki home; when **`false`**, those controls stay mock-only and wordmarks are static |
 
 `HeaderItem` matches **`AppChromeHeader`** (`link` / `button` / `component` / `title` with kebab-case icon names).
 
@@ -62,6 +63,7 @@ Desktop **inline search** is always **`<Search />`** inside **`VectorChromeHeade
 | `#logo` | both | EN Wikipedia wordmark (+ tagline on desktop) | Replace wordmark / lockup |
 | `#username` | desktop | Anchor from **`username`** | Replace markup before tool icons |
 | `#nav` | desktop | Vector tool icons | Replace user-tool cluster (**`navTools`** ignored) |
+| `#user-menu` | desktop | User avatar + caret (or prototyping popover) | Replace only the user-menu control |
 
 ### Example
 
@@ -83,9 +85,9 @@ Force desktop Vector chrome regardless of global skin. Same props/slots as the d
 import VectorChromeHeader from '@/components/chrome/VectorChromeHeader.vue'
 ```
 
-Props: **`theme?`**, **`username?`**, **`wordmarkSrc?`**, **`taglineSrc?`**, **`navTools?`**
+Props: **`theme?`**, **`username?`**, **`wordmarkSrc?`**, **`taglineSrc?`**, **`navTools?`**, **`prototypingSettings?`**
 
-Slots: **`#menu`**, **`#logo`**, **`#username`**, **`#nav`**
+Slots: **`#menu`**, **`#logo`**, **`#username`**, **`#nav`**, **`#user-menu`**
 
 ## MinervaChromeHeader
 
@@ -99,12 +101,12 @@ import type { MinervaHeaderItem } from '@/components/chrome/MinervaChromeHeader.
 | Region | Default |
 | --- | --- |
 | `left` | menu button |
-| `middle` | Wikipedia wordmark (`RouterLink` + `<img>`) when **`middle`** omitted |
-| `right` | search, notifications, user avatar buttons |
+| `middle` | Wikipedia wordmark (`RouterLink` to **`/`** when **`prototypingSettings`**, else static) when **`middle`** omitted |
+| `right` | search, notifications, user avatar (mock user settings popover when **`prototypingSettings`**, unless **`ChromeHeader`** **`#user-menu`** or **`right`** overrides) |
 
 Adjacent icon buttons/links in **`left`** and **`right`** have **no gap** between them (flush groups).
 
-Props: **`theme?`**, **`left?`**, **`middle?`**, **`right?`**, **`wordmarkSrc?`**, **`mobileWordmarkSrc?`**
+Props: **`theme?`**, **`left?`**, **`middle?`**, **`right?`**, **`wordmarkSrc?`**, **`mobileWordmarkSrc?`**, **`prototypingSettings?`**
 
 ## ChromeFooter
 

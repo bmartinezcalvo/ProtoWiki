@@ -7,7 +7,6 @@ import {
   CdxTextInput,
   CdxToast,
   CdxToastContainer,
-  CdxToggleButton,
 } from '@wikimedia/codex'
 import {
   cdxIconBookmark,
@@ -179,27 +178,32 @@ function onLanguagePick(row: ArticleLanguageLink) {
         >
           Edit
         </a>
-        <a href="#" class="article-header__tab" @click.prevent="$emit('historyClick')">
-          View history
-        </a>
-        <CdxButton
-          class="article-header__watch"
-          action="progressive"
-          weight="quiet"
-          :aria-pressed="isWatched"
-          @click="onWatchClick"
-        >
-          <CdxIcon :icon="isWatched ? cdxIconUnStar : cdxIconStar" />
-          {{ isWatched ? 'Unwatch' : 'Watch' }}
-        </CdxButton>
-        <CdxToggleButton
-          v-model="isBookmarked"
-          class="article-header__bookmark"
-          quiet
-          :aria-label="isBookmarked ? 'Remove from saved items' : 'Save page'"
-        >
-          <CdxIcon :icon="isBookmarked ? cdxIconBookmark : cdxIconBookmarkOutline" />
-        </CdxToggleButton>
+        <div class="article-header__actions-trailing">
+          <a href="#" class="article-header__tab" @click.prevent="$emit('historyClick')">
+            View history
+          </a>
+          <div class="article-header__watch-bookmark">
+            <CdxButton
+              class="article-header__watch"
+              action="progressive"
+              weight="quiet"
+              :aria-pressed="isWatched"
+              @click="onWatchClick"
+            >
+              <CdxIcon :icon="isWatched ? cdxIconUnStar : cdxIconStar" />
+              {{ isWatched ? 'Unwatch' : 'Watch' }}
+            </CdxButton>
+            <CdxButton
+              class="article-header__bookmark"
+              weight="quiet"
+              :aria-pressed="isBookmarked"
+              :aria-label="isBookmarked ? 'Remove from saved items' : 'Save page'"
+              @click="isBookmarked = !isBookmarked"
+            >
+              <CdxIcon :icon="isBookmarked ? cdxIconBookmark : cdxIconBookmarkOutline" />
+            </CdxButton>
+          </div>
+        </div>
       </nav>
     </div>
 
@@ -221,7 +225,10 @@ function onLanguagePick(row: ArticleLanguageLink) {
       >
         <CdxIcon :icon="cdxIconLanguage" />
       </button>
-      <div v-if="isLoggedOut" class="article-header__icon-toolbar-group article-header__icon-toolbar-group--end">
+      <div
+        v-if="isLoggedOut"
+        class="article-header__icon-toolbar-group article-header__icon-toolbar-group--end"
+      >
         <button
           type="button"
           class="article-header__icon-tool"
@@ -337,7 +344,8 @@ function onLanguagePick(row: ArticleLanguageLink) {
       @user-dismissed="showSavedToast = false"
       @auto-dismissed="showSavedToast = false"
     >
-      <strong>{{ title }}</strong> has been added to your <a href="#" @click.prevent>saved items</a>.
+      <strong>{{ title }}</strong> has been added to your
+      <a href="#" @click.prevent>saved items</a>.
     </CdxToast>
 
     <p v-if="effectiveSkin === 'desktop'" class="article-header__tagline">
@@ -467,6 +475,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
   border-top: 1px solid var(--border-color-base, #a2a9b1);
   border-bottom: 1px solid var(--border-color-subtle, #c8ccd1);
   margin: 0;
+  overflow: visible;
   font-family: var(--font-family-base);
   font-size: var(--font-size-small, 14px);
 }
@@ -486,6 +495,33 @@ function onLanguagePick(row: ArticleLanguageLink) {
 
 .article-header__actions .article-header__tab {
   align-self: stretch;
+}
+
+.article-header__actions-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-50, 8px);
+}
+
+.article-header__actions-trailing .article-header__tab {
+  align-self: stretch;
+}
+
+.article-header__watch-bookmark {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Typography only — leave Codex horizontal padding untouched (Vector MenuTabs parity). */
+.article-header__actions :deep(.cdx-button:not(.cdx-button--icon-only)) {
+  font-size: var(--font-size-small, 14px);
+  font-weight: var(--font-weight-normal);
+}
+
+/* Vector 2022: bookmark overhangs the toolbar inset on the right only. */
+.article-header__bookmark {
+  margin-inline-end: calc(-1 * var(--spacing-50));
 }
 
 .article-header__tab {
@@ -521,19 +557,6 @@ function onLanguagePick(row: ArticleLanguageLink) {
 
 .article-header__tab--active::after {
   background-color: var(--color-base);
-}
-
-/* Watch + bookmark sit in the same row as the text tabs; pull them in so the
-   quiet buttons' padding doesn't add extra space. */
-.article-header__watch {
-  /* Match the text tabs (Codex buttons default to bold). */
-  font-size: var(--font-size-small, 14px);
-  font-weight: var(--font-weight-normal);
-  margin-inline: calc(-1 * var(--spacing-50, 8px)) calc(-1 * var(--spacing-75, 12px));
-}
-
-.article-header__bookmark {
-  margin-inline-end: calc(-1 * var(--spacing-50, 8px));
 }
 
 .article-header__tagline {

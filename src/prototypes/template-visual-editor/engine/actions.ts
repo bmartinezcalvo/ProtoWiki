@@ -5,6 +5,7 @@
  * and land here as plain values.
  */
 import type { Finding } from './checks'
+import { transclusionAboutGroup } from './dom'
 
 function unwrap(el: Element) {
   const parent = el.parentNode
@@ -54,7 +55,14 @@ export function addCitationToParagraph(root: Element, paragraph: Element, source
 
 /** Citation needed → replace the template with a reference (Citoid `replace: true`). */
 export function replaceWithCitation(root: Element, template: Element, source: string, reuseLabel?: string) {
-  template.replaceWith(createReferenceMarker(root, source, reuseLabel))
+  const marker = createReferenceMarker(root, source, reuseLabel)
+  const group = transclusionAboutGroup(root, template)
+  if (group.length <= 1) {
+    template.replaceWith(marker)
+    return
+  }
+  group[0].replaceWith(marker)
+  for (let i = 1; i < group.length; i++) group[i].remove()
 }
 
 /** Convert reference: Citoid replaces the bare reference's body; the marker stays. */

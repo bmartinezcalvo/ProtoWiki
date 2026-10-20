@@ -1,24 +1,20 @@
 <script setup lang="ts">
 /**
- * "Mock Suggestion Mode settings" — opened from the header's user menu, in
+ * "Suggestion Mode settings" — opened from the chrome header main menu, in
  * the same style as ProtoWiki's mock user settings.
  */
 import { computed } from 'vue'
-import { CdxButton, CdxCheckbox, CdxField, CdxRadio, CdxSelect, CdxTextInput, CdxToggleSwitch } from '@wikimedia/codex'
+import { CdxButton, CdxCheckbox, CdxField, CdxRadio, CdxTextInput, CdxToggleSwitch } from '@wikimedia/codex'
 
 import { SUGGESTION_TYPES } from './engine/checks'
-import { MAX_LIMIT, MIN_LIMIT, resetSuggestionSettings, suggestionSettings, type EditCountBucket } from './settings'
+import { MAX_LIMIT, MIN_LIMIT, resetSuggestionSettings, suggestionSettings } from './settings'
 
 import '@/components/settings/settingsPanel.css'
 
 const props = defineProps<{
-  articleTitle?: string
   /** Suggestions detected in the current article (before the settings filter). */
   detectedCount?: number | null
-  loading?: boolean
 }>()
-
-const emit = defineEmits<{ loadAnother: [] }>()
 
 const limitMode = computed({
   get: () => (suggestionSettings.limit === null ? 'all' : 'custom'),
@@ -34,12 +30,6 @@ const limitText = computed({
     if (Number.isFinite(n)) suggestionSettings.limit = Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, n))
   },
 })
-
-const editCountItems: { value: EditCountBucket; label: string }[] = [
-  { value: 'new', label: '10 edits or fewer' },
-  { value: 'intermediate', label: '11–999 edits' },
-  { value: 'experienced', label: '1,000 edits or more' },
-]
 
 const allTypesOn = computed(() => SUGGESTION_TYPES.every((t) => suggestionSettings.types[t.id]))
 function setAllTypes(on: boolean) {
@@ -57,22 +47,11 @@ const shortfall = computed(
 <template>
   <div class="settings-panel suggestion-settings-panel">
     <div class="settings-panel__intro">
-      <h2 class="settings-panel__title">Mock Suggestion Mode settings</h2>
+      <h2 class="settings-panel__title">Suggestion Mode settings</h2>
       <p class="settings-panel__description">
-        Preview Suggestion Mode with different articles, suggestion types and editors.
+        Preview Suggestion Mode with different suggestion types.
       </p>
     </div>
-
-    <CdxField v-if="articleTitle">
-      <template #label>Article</template>
-      <template #help-text>
-        <template v-if="detectedCount != null">{{ detectedCount }} suggestions found in this article.</template>
-      </template>
-      <div class="settings-panel__row">
-        <span class="suggestion-settings-panel__article">{{ articleTitle }}</span>
-        <CdxButton weight="quiet" :disabled="loading" @click="emit('loadAnother')">Load another</CdxButton>
-      </div>
-    </CdxField>
 
     <CdxField is-fieldset>
       <template #label>Number of suggestions</template>
@@ -86,7 +65,7 @@ const shortfall = computed(
         </template>
       </CdxRadio>
       <template v-if="shortfall" #help-text>
-        This article only has {{ detectedCount }}. Load another article to see {{ suggestionSettings.limit }}.
+        This article only has {{ detectedCount }} suggestions.
       </template>
     </CdxField>
 
@@ -98,14 +77,6 @@ const shortfall = computed(
           {{ type.label }}
         </CdxCheckbox>
       </div>
-    </CdxField>
-
-    <CdxField>
-      <template #label>Editor</template>
-      <template #help-text>
-        10 edits or fewer: the first completed suggestion offers to publish. "Add a link" needs 1,000 edits or more.
-      </template>
-      <CdxSelect v-model:selected="suggestionSettings.editCount" :menu-items="editCountItems" />
     </CdxField>
 
     <CdxField>
@@ -128,26 +99,8 @@ const shortfall = computed(
   width: 100%;
 }
 
-.suggestion-settings-panel {
-  max-height: min(70vh, 640px);
-  overflow-y: auto;
-  padding-inline-end: var(--spacing-25, 4px);
-}
-
-.suggestion-settings-panel__article {
-  flex: 1;
-  min-width: 0;
-  font-weight: var(--font-weight-bold, 700);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .suggestion-settings-panel__types {
   padding-inline-start: var(--spacing-150, 24px);
 }
 
-.suggestion-settings-panel :deep(.cdx-select-vue) {
-  width: 100%;
-}
 </style>

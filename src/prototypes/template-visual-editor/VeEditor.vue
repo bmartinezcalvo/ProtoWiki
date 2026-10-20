@@ -28,6 +28,8 @@ import CitoidDialog, { type CitationInsert, type ExistingReference } from './Cit
 import PublishDialog, { type DiffBlock } from './PublishDialog.vue'
 import VeDialogs, { type VeDialogKind } from './VeDialogs.vue'
 import { useConfig } from '@/composables/useConfig'
+import { editorHasAtLeast25Edits, editorIsExperienced, editorShowsPublishPath } from '@/config'
+import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEditCount'
 import VeToolbar from './VeToolbar.vue'
 import * as fix from './engine/actions'
 import {
@@ -57,6 +59,8 @@ const props = defineProps<{
   /** Opened from a section's edit link (`data-mw-section-id`). */
   section?: string | null
 }>()
+
+const { editCount, editCountReady } = useEffectiveEditorEditCount()
 
 const emit = defineEmits<{
   /** Leave without publishing (edits are discarded). */
@@ -293,9 +297,10 @@ const badgeCount = computed(() => pendingSuggestions.value.length)
 async function runDetection() {
   detecting.value = true
   const root = surfaceRef.value!
+  const edits = editCount.value
   const findings = await detectSuggestions(root, props.page, {
-    experiencedEditor: suggestionSettings.editCount === 'experienced',
-    atLeast25Edits: suggestionSettings.editCount !== 'new',
+    experiencedEditor: editorIsExperienced(edits),
+    atLeast25Edits: editorHasAtLeast25Edits(edits),
   })
   for (const f of findings) status.set(f.id, 'pending')
   suggestions.value = findings
@@ -303,6 +308,11 @@ async function runDetection() {
   emit('detected', findings.length)
   scheduleLayout()
 }
+
+watch([editCount, editCountReady], () => {
+  if (!editCountReady.value || loadingEditor.value || !surfaceRef.value) return
+  void runDetection()
+})
 
 // ── Toasts ───────────────────────────────────────────────────────────────────
 
@@ -778,7 +788,7 @@ function complete(f: Finding, message?: string) {
   }
   if (focusedId.value === f.id) focusedId.value = null
   const isSuggestion = f.mode === 'suggestion'
-  if (isSuggestion && !publishPathShown && suggestionSettings.editCount === 'new') {
+  if (isSuggestion && !publishPathShown && editorShowsPublishPath(editCount.value)) {
     // `showPublishPath`: once, for the first completed suggestion.
     publishPathShown = true
     publishPathId.value = f.id

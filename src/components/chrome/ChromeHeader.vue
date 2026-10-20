@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, useSlots } from 'vue'
 import { RouterLink } from 'vue-router'
+import { CdxButton, CdxIcon } from '@wikimedia/codex'
+import { cdxIconUserAvatarOutline } from '@wikimedia/codex-icons'
 
+import SettingsPopover from '@/components/settings/SettingsPopover.vue'
+import UserSettingsPanel from '@/components/settings/UserSettingsPanel.vue'
 import type { HeaderItem } from '@/components/header/headerItems'
 import type { ChromeNavTool } from './headerNavTools'
 import MinervaChromeHeader from './MinervaChromeHeader.vue'
@@ -33,6 +37,10 @@ interface Props {
   middle?: HeaderItem[]
   /** Minerva bar only — override default **`right`** item array. */
   right?: HeaderItem[]
+  /**
+   * When true, default tool controls open prototyping settings; wordmarks link to ProtoWiki home.
+   */
+  prototypingSettings?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -46,6 +54,7 @@ const props = withDefaults(defineProps<Props>(), {
   left: undefined,
   middle: undefined,
   right: undefined,
+  prototypingSettings: true,
 })
 
 const slots = useSlots()
@@ -63,6 +72,32 @@ function slotBridgeComponent(slotName: 'menu' | 'logo' | 'user-menu') {
   })
 }
 
+const minervaUserSettingsComponent = defineComponent({
+  name: 'ChromeHeaderMinervaUserSettings',
+  setup() {
+    return () =>
+      h(SettingsPopover, null, {
+        default: ({ toggle, open }: { toggle: () => void; open: boolean }) =>
+          h(
+            CdxButton,
+            {
+              weight: 'quiet',
+              size: 'large',
+              'aria-label': 'Mock user settings',
+              'aria-haspopup': 'dialog',
+              'aria-expanded': open,
+              onClick: toggle,
+            },
+            {
+              default: () =>
+                h(CdxIcon, { icon: cdxIconUserAvatarOutline, size: 'medium' }),
+            },
+          ),
+        panel: () => h(UserSettingsPanel),
+      })
+  },
+})
+
 const minervaLeft = computed((): HeaderItem[] | undefined => {
   if (props.left !== undefined) return props.left
   if (slots.menu) return [{ type: 'component', component: slotBridgeComponent('menu') }]
@@ -78,16 +113,21 @@ const minervaMiddle = computed((): HeaderItem[] | undefined => {
         component: defineComponent({
           name: 'ChromeHeaderLogoSlot',
           setup() {
-            return () =>
-              h(
-                RouterLink,
-                {
-                  class: 'minerva-chrome-header__brand',
-                  to: '/',
-                  'aria-label': 'Visit the main page',
-                },
-                () => slots.logo?.() ?? null,
-              )
+            return () => {
+              const logo = () => slots.logo?.() ?? null
+              if (props.prototypingSettings) {
+                return h(
+                  RouterLink,
+                  {
+                    class: 'minerva-chrome-header__brand',
+                    to: '/',
+                    'aria-label': 'Visit the main page',
+                  },
+                  logo,
+                )
+              }
+              return h('span', { class: 'minerva-chrome-header__brand' }, logo)
+            }
           },
         }),
       },
@@ -106,6 +146,13 @@ const minervaRight = computed((): HeaderItem[] | undefined => {
         : item,
     )
   }
+  if (props.prototypingSettings) {
+    return MINERVA_DEFAULT_RIGHT.map((item) =>
+      item.type === 'button' && item.label === 'User menu'
+        ? { type: 'component', component: minervaUserSettingsComponent }
+        : item,
+    )
+  }
   return undefined
 })
 </script>
@@ -118,6 +165,7 @@ const minervaRight = computed((): HeaderItem[] | undefined => {
     :wordmark-src="props.wordmarkSrc"
     :tagline-src="props.taglineSrc"
     :nav-tools="props.navTools"
+    :prototyping-settings="props.prototypingSettings"
   >
     <template v-if="slots.menu" #menu>
       <slot name="menu" />
@@ -144,5 +192,6 @@ const minervaRight = computed((): HeaderItem[] | undefined => {
     :right="minervaRight"
     :wordmark-src="props.wordmarkSrc"
     :mobile-wordmark-src="props.mobileWordmarkSrc"
+    :prototyping-settings="props.prototypingSettings"
   />
 </template>

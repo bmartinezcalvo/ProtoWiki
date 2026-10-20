@@ -1,13 +1,14 @@
 import { reactive, watch } from 'vue'
 
+import { protowikiConfig } from '@/appearance'
+import { isConfigMockEditorEditCount } from '@/config'
+
 import { SUGGESTION_TYPES, type SuggestionTypeId } from './engine/checks'
 
 /**
- * Mock Suggestion Mode settings, edited from the header's user menu. Persisted
+ * Suggestion Mode settings, edited from the chrome header main menu. Persisted
  * per browser (a convenience only — the prototype works without storage).
  */
-export type EditCountBucket = 'new' | 'intermediate' | 'experienced'
-
 export interface SuggestionSettings {
   /** `null` = every detected suggestion, as production does (99+ cap in the badge only). */
   limit: number | null
@@ -20,11 +21,6 @@ export interface SuggestionSettings {
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
   rememberedToggle: boolean
-  /**
-   * Editor's edit count: ≤10 shows the publish-path card after the first
-   * completed suggestion (`showPublishPath`); ≥1000 unlocks "Add a link".
-   */
-  editCount: EditCountBucket
 }
 
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
@@ -35,7 +31,6 @@ function defaults(): SuggestionSettings {
     types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, true])) as Record<SuggestionTypeId, boolean>,
     firstTime: false,
     rememberedToggle: true,
-    editCount: 'experienced',
   }
 }
 
@@ -45,10 +40,21 @@ function load(): SuggestionSettings {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return base
     const saved = JSON.parse(raw)
+    if (isConfigMockEditorEditCount(saved?.editCount)) {
+      protowikiConfig.value = {
+        ...protowikiConfig.value,
+        mockEditorEditCountByUser: {
+          ...protowikiConfig.value.mockEditorEditCountByUser,
+          new: saved.editCount === 'experienced' ? 'none' : saved.editCount,
+          experienced: saved.editCount,
+        },
+      }
+    }
+    const { editCount: _removed, ...rest } = saved ?? {}
     return {
       ...base,
-      ...saved,
-      types: { ...base.types, ...(saved?.types ?? {}) },
+      ...rest,
+      types: { ...base.types, ...(rest?.types ?? {}) },
     }
   } catch {
     return base
@@ -73,7 +79,7 @@ export function resetSuggestionSettings() {
   Object.assign(suggestionSettings, defaults())
 }
 
-export const MIN_LIMIT = 5
+export const MIN_LIMIT = 0
 export const MAX_LIMIT = 99
 
 /**
@@ -83,7 +89,9 @@ export const MAX_LIMIT = 99
 export function applySuggestionSettings<T extends { type: string }>(items: T[]): T[] {
   const enabled = items.filter((item) => suggestionSettings.types[item.type as SuggestionTypeId] !== false)
   const limit = suggestionSettings.limit
-  if (!limit || enabled.length <= limit) return enabled
+  if (limit === null) return enabled
+  if (limit === 0) return []
+  if (enabled.length <= limit) return enabled
   const picked: T[] = []
   for (let i = 0; i < limit; i++) picked.push(enabled[Math.floor((i * enabled.length) / limit)])
   return picked

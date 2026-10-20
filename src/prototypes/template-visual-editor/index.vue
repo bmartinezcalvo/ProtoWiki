@@ -3,8 +3,8 @@ import { cdxIconEdit } from '@wikimedia/codex-icons'
 
 definePage({
   meta: {
-    title: 'VisualEditor',
-    description: 'Template for an article page using VisualEditor in edit mode.',
+    title: 'Visual Editor',
+    description: 'Template for prototyping the Visual Editor.',
     category: 'template',
     platform: 'web',
     order: 4.5,
@@ -14,43 +14,50 @@ definePage({
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CdxButton, CdxIcon, CdxMessage, CdxProgressBar, CdxToast } from '@wikimedia/codex'
-import { cdxIconDownTriangle, cdxIconUserAvatar, cdxIconUserAvatarOutline } from '@wikimedia/codex-icons'
+import { cdxIconMenu } from '@wikimedia/codex-icons'
 
 import ArticleRenderer from '@/components/article/ArticleRenderer.vue'
 import ArticleWrapper from '@/components/article/ArticleWrapper.vue'
 import ChromeWrapper from '@/components/chrome/ChromeWrapper.vue'
 import SettingsPopover from '@/components/settings/SettingsPopover.vue'
 import { provideChromeSearchHandlers } from '@/composables/useChromeSearch'
+import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEditCount'
+import { editorHasAtLeast25Edits, editorIsExperienced } from '@/config'
 import { globalSkin } from '@/theme'
 
 import SuggestionSettingsPanel from './SuggestionSettingsPanel.vue'
 import VeEditor from './VeEditor.vue'
 import { detectSuggestions } from './engine/checks'
 import { STR } from './engine/strings'
-import { MIN_LIMIT, suggestionSettings } from './settings'
-import { MIN_SUGGESTIONS_PER_ARTICLE, useSuggestionArticle } from './useSuggestionArticle'
+import { suggestionSettings } from './settings'
+import { useSuggestionArticle } from './useSuggestionArticle'
+
+const { editCount, editCountReady } = useEffectiveEditorEditCount()
 
 const skin = computed(() => globalSkin.value)
 const isMobile = computed(() => skin.value === 'mobile')
 
-/** Suggestions an article must have: 5, or the custom count if larger. */
-const minimum = () => Math.max(MIN_SUGGESTIONS_PER_ARTICLE, suggestionSettings.limit ?? MIN_LIMIT)
-
-const { article, loading, error, count, load, loadTitle } = useSuggestionArticle(async (doc, page, min) => {
-  const root = doc.querySelector('.mw-parser-output')!
-  const enabled = (list: { type: string }[]) =>
-    list.filter((f) => suggestionSettings.types[f.type as keyof typeof suggestionSettings.types] !== false).length
-  const options = {
-    experiencedEditor: suggestionSettings.editCount === 'experienced',
-    atLeast25Edits: suggestionSettings.editCount !== 'new',
-  }
-  // Rule-based detectors first; the API-based ones only if that isn't enough.
-  const quick = enabled(await detectSuggestions(root, page, { ...options, syncOnly: true }))
-  if (quick >= min) return quick
-  return enabled(await detectSuggestions(root, page, options))
-}, minimum)
+const { article, loading, error, count, load, loadTitle, refreshCount } = useSuggestionArticle(
+  async (doc, page) => {
+    const root = doc.querySelector('.mw-parser-output')!
+    const enabled = (list: { type: string }[]) =>
+      list.filter(
+        (f) => suggestionSettings.types[f.type as keyof typeof suggestionSettings.types] !== false,
+      ).length
+    const edits = editCount.value
+    const options = {
+      experiencedEditor: editorIsExperienced(edits),
+      atLeast25Edits: editorHasAtLeast25Edits(edits),
+    }
+    return enabled(await detectSuggestions(root, page, options))
+  },
+)
 
 void load()
+
+watch([editCount, editCountReady], () => {
+  if (editCountReady.value) void refreshCount()
+})
 
 provideChromeSearchHandlers({
   onSelect(title) {
@@ -78,7 +85,9 @@ const publishedHtml = ref<string | null>(null)
 
 const html = computed(() => publishedHtml.value ?? article.value?.html ?? '')
 const page = computed(() =>
-  article.value ? { title: article.value.title, lang: article.value.lang, host: article.value.host } : null,
+  article.value
+    ? { title: article.value.title, lang: article.value.lang, host: article.value.host }
+    : null,
 )
 
 function startEditing(section: string | null = null) {
@@ -98,19 +107,21 @@ function startEditing(section: string | null = null) {
 function decorateSections() {
   const root = readerRef.value?.$el
   if (!root || isMobile.value) return
-  root.querySelectorAll<HTMLElement>('section[data-mw-section-id] > :is(h2, h3, h4, h5, h6)').forEach((heading) => {
-    const id = heading.parentElement?.getAttribute('data-mw-section-id')
-    if (!id || Number(id) <= 0 || heading.querySelector('.mw-editsection')) return
-    const wrap = document.createElement('span')
-    wrap.className = 'mw-editsection'
-    wrap.innerHTML =
-      '<span class="mw-editsection-bracket">[</span><a href="#" class="ve-section-edit"></a><span class="mw-editsection-bracket">]</span>'
-    const link = wrap.querySelector('a')!
-    link.textContent = 'edit'
-    link.title = `Edit section: ${heading.textContent?.trim() ?? ''}`
-    link.dataset.section = id
-    heading.appendChild(wrap)
-  })
+  root
+    .querySelectorAll<HTMLElement>('section[data-mw-section-id] > :is(h2, h3, h4, h5, h6)')
+    .forEach((heading) => {
+      const id = heading.parentElement?.getAttribute('data-mw-section-id')
+      if (!id || Number(id) <= 0 || heading.querySelector('.mw-editsection')) return
+      const wrap = document.createElement('span')
+      wrap.className = 'mw-editsection'
+      wrap.innerHTML =
+        '<span class="mw-editsection-bracket">[</span><a href="#" class="ve-section-edit"></a><span class="mw-editsection-bracket">]</span>'
+      const link = wrap.querySelector('a')!
+      link.textContent = 'edit'
+      link.title = `Edit section: ${heading.textContent?.trim() ?? ''}`
+      link.dataset.section = id
+      heading.appendChild(wrap)
+    })
 }
 
 function onReaderClick(e: MouseEvent) {
@@ -118,7 +129,8 @@ function onReaderClick(e: MouseEvent) {
   const trigger = target?.closest('.ve-section-edit, .protowiki-mobile-h2__edit')
   if (!trigger) return
   const section =
-    (trigger as HTMLElement).dataset.section ?? trigger.closest('section[data-mw-section-id]')?.getAttribute('data-mw-section-id')
+    (trigger as HTMLElement).dataset.section ??
+    trigger.closest('section[data-mw-section-id]')?.getAttribute('data-mw-section-id')
   if (!section) return
   e.preventDefault()
   e.stopPropagation()
@@ -194,13 +206,6 @@ function onPublished(newHtml: string) {
   window.scrollTo({ top: 0 })
 }
 
-async function loadAnother() {
-  stopEditing()
-  publishedHtml.value = null
-  detectedCount.value = null
-  await load({ fresh: true })
-}
-
 const shownCount = computed(() => detectedCount.value ?? count.value)
 </script>
 
@@ -209,35 +214,41 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
     <!-- Minerva's editor is full-screen: no site header while editing. -->
     <template v-if="isMobile && editing" #header><span /></template>
 
-    <template #user-menu>
+    <template #menu>
       <SettingsPopover>
         <template #default="{ toggle }">
           <CdxButton
             v-if="!isMobile"
+            class="chrome-header__menu-btn"
             weight="quiet"
-            aria-label="User menu"
+            aria-label="Main menu"
             aria-haspopup="dialog"
             @click="toggle"
           >
-            <CdxIcon :icon="cdxIconUserAvatar" />
-            <CdxIcon :icon="cdxIconDownTriangle" size="small" />
+            <CdxIcon :icon="cdxIconMenu" />
           </CdxButton>
-          <CdxButton v-else weight="quiet" size="large" aria-label="User menu" aria-haspopup="dialog" @click="toggle">
-            <CdxIcon :icon="cdxIconUserAvatarOutline" />
+          <CdxButton
+            v-else
+            weight="quiet"
+            size="large"
+            aria-label="Main menu"
+            aria-haspopup="dialog"
+            @click="toggle"
+          >
+            <CdxIcon :icon="cdxIconMenu" />
           </CdxButton>
         </template>
         <template #panel>
-          <SuggestionSettingsPanel
-            :article-title="article?.title"
-            :detected-count="shownCount"
-            :loading="loading"
-            @load-another="loadAnother"
-          />
+          <SuggestionSettingsPanel :detected-count="shownCount" />
         </template>
       </SettingsPopover>
     </template>
 
-    <div class="ve-page" :class="{ 've-page--sidebar': sidebarOpen, 've-page--editing': editing }" :data-skin="skin">
+    <div
+      class="ve-page"
+      :class="{ 've-page--sidebar': sidebarOpen, 've-page--editing': editing }"
+      :data-skin="skin"
+    >
       <ArticleWrapper
         :title="article?.title"
         :active-view="editing ? 'edit' : 'read'"
@@ -245,7 +256,7 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
         @read-click="editing ? requestStopEditing() : undefined"
       >
         <CdxProgressBar v-if="loading" inline aria-label="Loading article" />
-        <p v-if="loading" class="ve-page__loading">Finding an article with suggestions…</p>
+        <p v-if="loading" class="ve-page__loading">Loading article…</p>
         <CdxMessage v-if="error" type="error" :allow-user-dismiss="false">
           Couldn't load an article: {{ error }}
         </CdxMessage>
@@ -311,8 +322,14 @@ html.ve-template-vector .cdx-toast-container .cdx-toast {
  */
 .ve-page--sidebar :deep(.article[data-skin='desktop']) {
   --ve-sidebar-room: calc(325px + 24px);
-  max-width: min(calc(984px + 2 * var(--spacing-100, 16px)), calc(100% - var(--ve-sidebar-room) - 32px));
-  margin-inline-start: max(16px, calc((100% - (984px + 2 * var(--spacing-100, 16px)) - var(--ve-sidebar-room)) / 2));
+  max-width: min(
+    calc(984px + 2 * var(--spacing-100, 16px)),
+    calc(100% - var(--ve-sidebar-room) - 32px)
+  );
+  margin-inline-start: max(
+    16px,
+    calc((100% - (984px + 2 * var(--spacing-100, 16px)) - var(--ve-sidebar-room)) / 2)
+  );
   margin-inline-end: auto;
   transition: margin 250ms ease;
 }

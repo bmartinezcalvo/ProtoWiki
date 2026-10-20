@@ -97,6 +97,27 @@ export function makeContext(root: Element): DocContext {
   return { root, aboutIds: collectTransclusionAboutIds(root) }
 }
 
+/** Parsoid splits one template across several `about`-linked siblings. */
+export function transclusionAboutGroup(root: Element, el: Element): Element[] {
+  const about = el.getAttribute('about')
+  if (!about) return [el]
+  return Array.from(root.querySelectorAll(`[about="${CSS.escape(about)}"]`))
+}
+
+/** Visible output (e.g. citation-needed superscript), not metadata `<link>` nodes. */
+export function transclusionDisplayElement(root: Element, el: Element): Element {
+  const group = transclusionAboutGroup(root, el)
+  return (
+    group.find((g) => g.tagName === 'SUP') ??
+    group.find((g) => g.matches('.Inline-Template, .Template-Fact')) ??
+    group.find((g) => {
+      const r = g.getBoundingClientRect()
+      return r.width >= 1 && r.height >= 1
+    }) ??
+    el
+  )
+}
+
 /**
  * Opaque in VE: transclusions (and their `about`-linked siblings), extensions
  * (refs, reference lists, math…), media. Their text isn't searched.
