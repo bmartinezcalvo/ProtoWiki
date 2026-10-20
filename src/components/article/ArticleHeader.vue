@@ -51,9 +51,10 @@ interface Props {
   activeView?: 'read' | 'edit'
   /**
    * Main Page header, as production renders it. Desktop: the heading is visually
-   * hidden, with no languages button or tagline, and the first tab reads
-   * **Main Page**. Mobile: no tabs or toolbar; the heading is hidden logged out
-   * and reads “Welcome, Name!” logged in.
+   * hidden, with no languages button or tagline, the first tab reads **Main Page**,
+   * and **Edit** is replaced by a non-functional **View source** action. Mobile:
+   * no tabs or toolbar; the heading is hidden logged out and reads “Welcome, Name!”
+   * logged in.
    */
   mainPage?: boolean
 }
@@ -198,6 +199,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
           Read
         </a>
         <a
+          v-if="!props.mainPage"
           href="#"
           class="article-header__tab"
           :class="{ 'article-header__tab--active': activeView === 'edit' }"
@@ -206,6 +208,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
         >
           Edit
         </a>
+        <a v-else href="#" class="article-header__tab" @click.prevent> View source </a>
         <div class="article-header__actions-trailing">
           <a href="#" class="article-header__tab" @click.prevent="$emit('historyClick')">
             View history
