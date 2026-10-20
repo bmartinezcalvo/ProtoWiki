@@ -50,7 +50,14 @@ export function useSuggestionArticle(
         const selected = await selectRandomArticle({ fresh: fresh || attempt > 0 })
         if (current !== token) return
         const host = wikiHostFromLang(selected.lang)
-        const body = await fetchArticleBody(selected.title, host)
+        let body: { html: string }
+        try {
+          body = await fetchArticleBody(selected.title, host)
+        } catch {
+          // e.g. a 404 for a page deleted since it was picked: try another one.
+          if (current !== token) return
+          continue
+        }
         if (current !== token) return
 
         const candidate: LoadedArticle = { title: selected.title, lang: selected.lang, host, html: body.html }

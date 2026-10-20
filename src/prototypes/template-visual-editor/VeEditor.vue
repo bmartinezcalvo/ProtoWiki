@@ -477,6 +477,8 @@ function layoutCards() {
 // ── "View suggestions" (desktop pill / mobile banner) ────────────────────────
 
 const offscreenDirection = ref<'up' | 'down' | null>(null)
+/** Desktop: the sidebar column in window coordinates, for the fixed "View suggestions". */
+const pillColumn = ref<{ left: string; width: string }>({ left: '0px', width: '325px' })
 const anyInView = ref(true)
 const seenOnMobile = ref(false)
 const bannerDismissed = ref(false)
@@ -484,6 +486,8 @@ const bannerDismissed = ref(false)
 function updateViewport() {
   const wrap = wrapRef.value
   if (!wrap) return
+  const side = sidebarRef.value?.getBoundingClientRect()
+  if (side) pillColumn.value = { left: `${side.left}px`, width: `${side.width}px` }
   const origin = wrap.getBoundingClientRect()
   const viewTop = isMobile.value ? 48 : 0
   const viewBottom = window.innerHeight - (isMobile.value && sheetOpen.value ? sheetHeight.value : 0)
@@ -1568,6 +1572,7 @@ const titleFor = (f: Finding) =>
           v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed"
           class="ve-view-pill-wrap"
           :class="{ 've-view-pill-wrap--up': offscreenDirection === 'up' }"
+          :style="pillColumn"
         >
           <div class="ve-view-pill" role="group" aria-label="View suggestions">
             <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
@@ -2271,21 +2276,23 @@ const titleFor = (f: Finding) =>
 }
 
 /* View suggestions pill */
+/*
+ * Fixed to the window over the sidebar column (left/width set from the
+ * sidebar's position): at the bottom, or under the toolbar when the nearest
+ * suggestion is above.
+ */
 .ve-view-pill-wrap {
-  position: sticky;
+  position: fixed;
   bottom: 16px;
-  top: auto;
   display: flex;
   justify-content: center;
-  margin-top: calc(100vh - 80px);
   pointer-events: none;
   z-index: 11;
 }
 
 .ve-view-pill-wrap--up {
-  top: 56px;
+  top: 58px;
   bottom: auto;
-  margin-top: 0;
 }
 
 /* "View suggestions": a pill-shaped group of two normal progressive buttons. */
