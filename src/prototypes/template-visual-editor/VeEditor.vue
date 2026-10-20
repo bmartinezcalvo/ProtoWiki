@@ -11,7 +11,7 @@
  * - Publish runs the pre-save "Before publishing" step with checks only.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
-import { CdxButton, CdxIcon, CdxToast } from '@wikimedia/codex'
+import { CdxButton, CdxDialog, CdxIcon, CdxToast } from '@wikimedia/codex'
 import {
   cdxIconAlert,
   cdxIconArrowDown,
@@ -1260,8 +1260,23 @@ watch(displayed, () => scheduleLayout())
 watch([focusedId, () => successIds.size, publishPathId], () => nextTick(layoutCards))
 watch(boxes, () => updateViewport())
 
-// Exposed for the page (Read tab / settings changes).
-defineExpose({ hasChanges })
+// ── Leaving the editor ───────────────────────────────────────────────────────
+
+/** "Are you sure?" (`visualeditor-viewpage-savewarning`) when leaving with changes. */
+const leaveOpen = ref(false)
+
+function requestExit() {
+  if (hasChanges.value) leaveOpen.value = true
+  else emit('exit')
+}
+
+function discardEdits() {
+  leaveOpen.value = false
+  emit('exit')
+}
+
+// Exposed for the page (Read / Edit tabs).
+defineExpose({ hasChanges, requestExit })
 
 /** Card icon: alert for checks, dashed lightbulb for experimental suggestions. */
 const iconFor = (f: Finding) =>
@@ -1297,7 +1312,7 @@ const titleFor = (f: Finding) =>
       :loading="loadingEditor"
       @undo="undo"
       @redo="redo"
-      @close="emit('exit')"
+      @close="requestExit"
       @publish="publish"
       @back="leaveReview"
       @text-style="textStyle"
@@ -1486,11 +1501,19 @@ const titleFor = (f: Finding) =>
           class="ve-view-pill-wrap"
           :class="{ 've-view-pill-wrap--up': offscreenDirection === 'up' }"
         >
-          <div class="ve-view-pill" role="button" tabindex="0" @click="viewSuggestions" @keydown.enter="viewSuggestions">
-            <CdxIcon :icon="offscreenDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
-            <span>View suggestions</span>
-            <CdxButton weight="quiet" action="progressive" size="small" aria-label="Dismiss suggestions" @click.stop="bannerDismissed = true">
-              <CdxIcon :icon="cdxIconClose" size="small" />
+          <div class="ve-view-pill" role="group" aria-label="View suggestions">
+            <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
+              <CdxIcon :icon="offscreenDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
+              View suggestions
+            </CdxButton>
+            <CdxButton
+              action="progressive"
+              size="large"
+              class="ve-view-pill__close"
+              aria-label="Dismiss suggestions"
+              @click="bannerDismissed = true"
+            >
+              <CdxIcon :icon="cdxIconClose" />
             </CdxButton>
           </div>
         </div>
@@ -1502,11 +1525,19 @@ const titleFor = (f: Finding) =>
       v-if="isMobile && !review && suggestionsOn && !detecting && !seenOnMobile && !sheetOpen && pendingDisplayed.length && !bannerDismissed"
       class="ve-mobile-banner"
     >
-      <div class="ve-view-pill ve-view-pill--mobile" role="button" tabindex="0" @click="viewSuggestions" @keydown.enter="viewSuggestions">
-        <CdxIcon :icon="offscreenDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
-        <span>View suggestions</span>
-        <CdxButton weight="quiet" action="progressive" size="small" aria-label="Dismiss suggestions" @click.stop="bannerDismissed = true">
-          <CdxIcon :icon="cdxIconClose" size="small" />
+      <div class="ve-view-pill ve-view-pill--mobile" role="group" aria-label="View suggestions">
+        <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
+          <CdxIcon :icon="offscreenDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
+          View suggestions
+        </CdxButton>
+        <CdxButton
+          action="progressive"
+          size="large"
+          class="ve-view-pill__close"
+          aria-label="Dismiss suggestions"
+          @click="bannerDismissed = true"
+        >
+          <CdxIcon :icon="cdxIconClose" />
         </CdxButton>
       </div>
     </div>
@@ -1577,6 +1608,20 @@ const titleFor = (f: Finding) =>
     <!-- Toggle toasts: dark Minerva toast / Codex toast on desktop -->
     <div v-if="isMobile && toast" :key="toast.id" class="ve-mobile-toast" role="status" aria-live="polite">{{ toast.text }}</div>
     <CdxToast v-else-if="toast" :key="toast.id" type="notice" @user-dismissed="toast = null">{{ toast.text }}</CdxToast>
+
+    <CdxDialog
+      v-model:open="leaveOpen"
+      class="ve-leave"
+      title="Are you sure?"
+      use-close-button
+      :stacked-actions="isMobile"
+      :primary-action="{ label: 'Discard edits', actionType: 'destructive' }"
+      :default-action="{ label: 'Continue editing' }"
+      @primary="discardEdits"
+      @default="leaveOpen = false"
+    >
+      Are you sure you want to leave editing mode without publishing first?
+    </CdxDialog>
 
     <CitoidDialog
       :open="!!citoid"
@@ -2166,32 +2211,30 @@ const titleFor = (f: Finding) =>
   margin-top: 0;
 }
 
+/* "View suggestions": a pill-shaped group of two normal progressive buttons. */
 .ve-view-pill {
   pointer-events: auto;
   display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--border-color-progressive, #36c);
   border-radius: 9999px;
-  background: var(--background-color-progressive-subtle, #e8eeff);
-  color: var(--color-progressive, #36c);
-  font-weight: var(--font-weight-bold, 700);
-  font-size: var(--font-size-small, 14px);
   box-shadow:
     0 4px 4px 0 rgba(0, 0, 0, 0.06),
     0 0 8px 0 rgba(0, 0, 0, 0.06);
-  cursor: pointer;
   animation: ve-pill-in 220ms ease;
 }
 
-.ve-view-pill:hover {
-  background: #dbe8ff;
+.ve-view-pill .cdx-button {
+  border-radius: 0;
 }
 
-.ve-view-pill .cdx-icon {
-  color: var(--color-progressive, #36c);
+.ve-view-pill__main.cdx-button {
+  border-radius: 9999px 0 0 9999px;
+  padding-inline: 16px 12px;
+}
+
+.ve-view-pill__close.cdx-button {
+  margin-inline-start: -1px;
+  border-radius: 0 9999px 9999px 0;
+  padding-inline: 10px 14px;
 }
 
 @keyframes ve-pill-in {
@@ -2306,10 +2349,6 @@ const titleFor = (f: Finding) =>
   animation: ve-bar-up 500ms cubic-bezier(0, 0, 0.2, 1) both;
 }
 
-.ve-view-pill--mobile {
-  padding: 0 16px;
-  font-size: var(--font-size-medium, 16px);
-}
 
 @keyframes ve-bar-up {
   from {

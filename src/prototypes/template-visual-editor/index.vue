@@ -12,7 +12,7 @@ definePage({
   },
 })
 
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CdxButton, CdxIcon, CdxMessage, CdxProgressBar, CdxToast } from '@wikimedia/codex'
 import { cdxIconDownTriangle, cdxIconUserAvatar, cdxIconUserAvatarOutline } from '@wikimedia/codex-icons'
 
@@ -66,6 +66,7 @@ provideChromeSearchHandlers({
 
 const editing = ref(false)
 const editKey = ref(0)
+const editorRef = ref<{ requestExit: () => void } | null>(null)
 /** Section the editor was opened from (`data-mw-section-id`), or null for the whole page. */
 const editSection = ref<string | null>(null)
 const readerRef = ref<{ $el: HTMLElement } | null>(null)
@@ -149,11 +150,42 @@ function stopEditing() {
   sidebarOpen.value = false
 }
 
+/** Leaving the editor goes through its "Are you sure?" check when there are changes. */
+function requestStopEditing() {
+  if (editorRef.value) editorRef.value.requestExit()
+  else stopEditing()
+}
+
 function onEditClick() {
   // The Edit tab toggles back to reading, as in the original prototype.
-  if (editing.value) stopEditing()
+  if (editing.value) requestStopEditing()
   else startEditing(null)
 }
+
+/*
+ * Vector: toasts sit top-right, 16px from the right edge and 16px under the
+ * site header (or the top of the window once the header has scrolled away).
+ */
+function updateToastOffset() {
+  const header = document.querySelector('.vector-chrome-header')
+  const bottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0
+  document.documentElement.style.setProperty('--ve-toast-top', `${bottom + 16}px`)
+}
+watch(
+  skin,
+  (value) => {
+    document.documentElement.classList.toggle('ve-template-vector', value === 'desktop')
+    nextTick(updateToastOffset)
+  },
+  { immediate: true },
+)
+onMounted(updateToastOffset)
+window.addEventListener('scroll', updateToastOffset, { passive: true })
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', updateToastOffset)
+  document.documentElement.classList.remove('ve-template-vector')
+  document.documentElement.style.removeProperty('--ve-toast-top')
+})
 
 function onPublished(newHtml: string) {
   publishedHtml.value = newHtml
@@ -210,7 +242,7 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
         :title="article?.title"
         :active-view="editing ? 'edit' : 'read'"
         @edit-click="onEditClick"
-        @read-click="stopEditing"
+        @read-click="editing ? requestStopEditing() : undefined"
       >
         <CdxProgressBar v-if="loading" inline aria-label="Loading article" />
         <p v-if="loading" class="ve-page__loading">Finding an article with suggestions…</p>
@@ -221,6 +253,7 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
         <template v-if="article && !loading">
           <VeEditor
             v-if="editing && page"
+            ref="editorRef"
             :key="editKey"
             :html="html"
             :skin="skin"
@@ -244,6 +277,30 @@ const shownCount = computed(() => detectedCount.value ?? count.value)
     </CdxToast>
   </ChromeWrapper>
 </template>
+
+<style>
+/* Vector toasts: top-right (see updateToastOffset). */
+html.ve-template-vector .cdx-toast-container {
+  top: var(--ve-toast-top, 16px);
+  bottom: auto;
+  left: auto;
+  right: 16px;
+  width: 32rem;
+  max-width: calc(100% - 32px);
+}
+
+html.ve-template-vector .cdx-toast-container__stack {
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+html.ve-template-vector .cdx-toast-container .cdx-toast {
+  transform: none;
+  left: 0;
+  width: 100%;
+  max-width: 100%;
+}
+</style>
 
 <style scoped>
 /*
