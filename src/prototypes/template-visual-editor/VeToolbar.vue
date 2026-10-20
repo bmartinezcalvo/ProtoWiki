@@ -19,10 +19,7 @@ import {
   cdxIconExpand,
   cdxIconEye,
   cdxIconHelp,
-  cdxIconHieroglyph,
-  cdxIconImage,
   cdxIconItalic,
-  cdxIconLanguage,
   cdxIconLightbulb,
   cdxIconLink,
   cdxIconListBullet,
@@ -31,9 +28,7 @@ import {
   cdxIconQuotes,
   cdxIconRedo,
   cdxIconSpecialCharacter,
-  cdxIconSpeechBubble,
   cdxIconStrikethrough,
-  cdxIconTable,
   cdxIconTextStyle,
   cdxIconUnderline,
   cdxIconUndo,
@@ -125,9 +120,10 @@ function onDocumentClick(e: MouseEvent) {
 }
 
 /**
- * Minerva toolbar width: each middle item needs 44px. Undo, Text styles, Add,
- * More, the suggestions toggle (and Redo when shown) always fit; Link, then
- * Cite, become top-level buttons when there's room, otherwise they live in "+".
+ * Minerva toolbar width: each middle item needs 44px. Undo, Text styles, More,
+ * the suggestions toggle (and Redo when shown) always fit. Link and Cite are
+ * top-level when both fit; otherwise they live in "+". The other insert tools
+ * aren't in production yet, so "+" only appears when it holds Link/Cite.
  */
 const scrollAreaRef = ref<HTMLElement | null>(null)
 const scrollAreaWidth = ref(0)
@@ -143,10 +139,11 @@ watch(scrollAreaRef, (el, _old, onCleanup) => {
 const slots = computed(() =>
   Math.floor((scrollAreaWidth.value || Math.max(0, window.innerWidth - 88)) / 44),
 )
-const coreSlots = computed(() => 4 + (props.canRedo ? 1 : 0) + 1)
-const showLink = computed(() => slots.value >= coreSlots.value + 1)
-const showCite = computed(() => showLink.value && slots.value >= coreSlots.value + 2)
-const overflowing = computed(() => slots.value < coreSlots.value + (showLink.value ? 1 : 0) + (showCite.value ? 1 : 0))
+const coreSlots = computed(() => 3 + (props.canRedo ? 1 : 0) + 1)
+const showLink = computed(() => slots.value >= coreSlots.value + 2)
+const showCite = showLink
+const showAdd = computed(() => !showLink.value)
+const overflowing = computed(() => slots.value < coreSlots.value + (showLink.value ? 2 : 1))
 
 const TEXT_STYLES = [
   { value: 'bold', label: 'Bold', icon: cdxIconBold },
@@ -157,21 +154,7 @@ const TEXT_STYLES = [
 const addItems = computed(() => [
   ...(!showLink.value ? [{ value: 'link', label: 'Link', icon: cdxIconLink }] : []),
   ...(!showCite.value ? [{ value: 'cite', label: 'Cite', icon: cdxIconQuotes }] : []),
-  ...(!showLink.value || !showCite.value ? [{ divider: true }] : []),
-  ...ADD_ITEMS_BASE,
 ])
-
-const ADD_ITEMS_BASE = [
-  { value: 'images-media', label: 'Images and media', icon: cdxIconImage },
-  { value: 'table', label: 'Table', icon: cdxIconTable },
-  { divider: true },
-  { value: 'invisible-comment', label: 'Invisible comment', icon: cdxIconSpeechBubble },
-  { divider: true },
-  { value: 'special-characters', label: 'Special characters', icon: cdxIconSpecialCharacter },
-  { value: 'hieroglyphs', label: 'Hieroglyphs', icon: cdxIconHieroglyph },
-  { value: 'code-block', label: 'Code block', icon: cdxIconCode },
-  { value: 'language', label: 'Language', icon: cdxIconLanguage },
-]
 
 function applyTextStyle(command: string) {
   emit('textStyle', command)
@@ -367,7 +350,7 @@ onBeforeUnmount(() => {
       <button v-if="showCite" class="ve-toolbar__btn ve-toolbar__btn--fill" aria-label="Cite">
         <CdxIcon :icon="cdxIconQuotes" />
       </button>
-      <div class="ve-toolbar__menu-wrap ve-toolbar__btn--fill">
+      <div v-if="showAdd" class="ve-toolbar__menu-wrap ve-toolbar__btn--fill">
         <button
           class="ve-toolbar__btn ve-toolbar__menu-trigger"
           :class="{ 've-toolbar__menu-trigger--active': openMenu === 'add' }"
@@ -378,8 +361,7 @@ onBeforeUnmount(() => {
         </button>
         <div v-if="openMenu === 'add'" class="ve-toolbar__menu" role="menu">
           <template v-for="(item, i) in addItems" :key="i">
-            <div v-if="'divider' in item" class="ve-toolbar__menu-divider" role="separator" />
-            <button v-else class="ve-toolbar__menu-item" role="menuitem" @click="openMenu = null">
+            <button class="ve-toolbar__menu-item" role="menuitem" @click="openMenu = null">
               <CdxIcon :icon="item.icon" />
               <span>{{ item.label }}</span>
             </button>

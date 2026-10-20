@@ -24,9 +24,10 @@ function nextReferenceNumber(root: Element): number {
 }
 
 /** A Parsoid-shaped reference marker, as VE inserts for a new `<ref>`. */
-export function createReferenceMarker(root: Element, source: string): HTMLElement {
+export function createReferenceMarker(root: Element, source: string, reuseLabel?: string): HTMLElement {
   const doc = root.ownerDocument
-  const n = nextReferenceNumber(root)
+  const reused = reuseLabel ? Number(reuseLabel.replace(/[^\d]/g, '')) : 0
+  const n = reused || nextReferenceNumber(root)
   const sup = doc.createElement('sup')
   sup.className = 'mw-ref reference protowiki-ve-new-ref'
   sup.setAttribute('typeof', 'mw:Extension/ref')
@@ -34,7 +35,9 @@ export function createReferenceMarker(root: Element, source: string): HTMLElemen
   sup.setAttribute('contenteditable', 'false')
   const a = doc.createElement('a')
   a.setAttribute('href', `#cite_note-protowiki-${n}`)
-  a.title = source
+  const plain = doc.createElement('div')
+  plain.innerHTML = source
+  a.title = (plain.textContent ?? '').trim()
   const label = doc.createElement('span')
   label.className = 'mw-reflink-text'
   label.textContent = `[${n}]`
@@ -44,13 +47,25 @@ export function createReferenceMarker(root: Element, source: string): HTMLElemen
 }
 
 /** "Add citation": a new reference at the end of the paragraph (`beforePunctuation: false`). */
-export function addCitationToParagraph(root: Element, paragraph: Element, source: string) {
-  paragraph.appendChild(createReferenceMarker(root, source))
+export function addCitationToParagraph(root: Element, paragraph: Element, source: string, reuseLabel?: string) {
+  paragraph.querySelectorAll('.ve-caret-anchor').forEach((el) => el.remove())
+  paragraph.appendChild(createReferenceMarker(root, source, reuseLabel))
 }
 
 /** Citation needed → replace the template with a reference (Citoid `replace: true`). */
-export function replaceWithCitation(root: Element, template: Element, source: string) {
-  template.replaceWith(createReferenceMarker(root, source))
+export function replaceWithCitation(root: Element, template: Element, source: string, reuseLabel?: string) {
+  template.replaceWith(createReferenceMarker(root, source, reuseLabel))
+}
+
+/** Convert reference: Citoid replaces the bare reference's body; the marker stays. */
+export function setReferenceBody(ref: Element, source: string) {
+  try {
+    const mw = JSON.parse(ref.getAttribute('data-mw') ?? '{}')
+    mw.body = { html: source }
+    ref.setAttribute('data-mw', JSON.stringify(mw))
+  } catch {
+    /* malformed data-mw */
+  }
 }
 
 export function removeBold(el: Element) {

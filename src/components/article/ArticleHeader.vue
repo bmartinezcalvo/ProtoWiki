@@ -248,13 +248,15 @@ function onLanguagePick(row: ArticleLanguageLink) {
         </button>
       </div>
       <template v-else>
+        <!-- Minerva (logged in): bookmark (save page), as in production. -->
         <button
           type="button"
           class="article-header__icon-tool"
-          aria-label="Watch"
-          @click="$emit('bookmarkClick')"
+          :aria-pressed="isBookmarked"
+          :aria-label="isBookmarked ? 'Remove from saved items' : 'Save page'"
+          @click="isBookmarked = !isBookmarked"
         >
-          <CdxIcon :icon="cdxIconUnStar" />
+          <CdxIcon :icon="isBookmarked ? cdxIconBookmark : cdxIconBookmarkOutline" />
         </button>
         <button
           type="button"

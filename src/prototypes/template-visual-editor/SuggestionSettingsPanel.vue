@@ -122,6 +122,12 @@ const shortfall = computed(
 </template>
 
 <style scoped>
+/* Minerva: the popover is a bottom sheet — use its full width. */
+:global(.cdx-popover--bottom-sheet) .suggestion-settings-panel {
+  max-width: none;
+  width: 100%;
+}
+
 .suggestion-settings-panel {
   max-height: min(70vh, 640px);
   overflow-y: auto;

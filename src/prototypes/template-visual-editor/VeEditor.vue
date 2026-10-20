@@ -24,7 +24,10 @@ import {
 } from '@wikimedia/codex-icons'
 
 import FindingBody from './FindingBody.vue'
+import CitoidDialog, { type CitationInsert, type ExistingReference } from './CitoidDialog.vue'
+import PublishDialog, { type DiffBlock } from './PublishDialog.vue'
 import VeDialogs, { type VeDialogKind } from './VeDialogs.vue'
+import { useConfig } from '@/composables/useConfig'
 import VeToolbar from './VeToolbar.vue'
 import * as fix from './engine/actions'
 import {
@@ -79,6 +82,8 @@ const addedParagraphs = new Set<Element>()
 let originalBlocks = new WeakSet<Element>()
 
 const BLOCK_SELECTOR = 'p, li, dd, dt, td, th, h1, h2, h3, h4, h5, h6, figcaption, pre'
+/** Blocks compared for "Review your changes". */
+const DIFF_BLOCKS = 'p, li, h2, h3, h4, h5, h6, figcaption'
 
 function blockOf(node: Node | null): Element | null {
   const el = node ? (node.nodeType === 1 ? (node as Element) : node.parentElement) : null
@@ -92,6 +97,7 @@ function cleanHtml(): string {
   clone.querySelectorAll('.ve-review-focus').forEach((el) => el.classList.remove('ve-review-focus'))
   clone.querySelectorAll('.ve-section-hidden').forEach((el) => el.classList.remove('ve-section-hidden'))
   stripTemplateChips(clone)
+  clone.querySelectorAll('.ve-caret-anchor').forEach((el) => el.remove())
   return clone.innerHTML
 }
 
@@ -359,7 +365,8 @@ function measure() {
   for (const f of displayed.value) {
     const list = rectsFor(f, origin)
     next.set(f.id, list)
-    if (list.length && isBlockFinding(f)) {
+    // Rail on the left: block-level suggestions, and every edit check.
+    if (list.length && (isBlockFinding(f) || f.mode === 'check')) {
       const top = Math.min(...list.map((b) => b.top))
       const bottom = Math.max(...list.map((b) => b.top + b.height))
       bars.set(f.id, { top, left: 0, width: 2, height: bottom - top })
@@ -758,13 +765,13 @@ async function act(f: Finding, action: ChoiceAction, reason?: string) {
         fix.addInternalLink(f.ranges[0], f.data!.target)
         return complete(f)
       }
-      dialog.value = { kind: 'citation', finding: f }
+      openCitoid(f)
       return
     case 'add':
-      dialog.value = { kind: 'citation', finding: f }
+      openCitoid(f, { replace: true })
       return
     case 'convert':
-      dialog.value = { kind: 'citation', finding: f, initial: f.data?.href }
+      openCitoid(f, { replace: true, query: f.data?.href })
       return
     case 'edit':
       if (f.type === 'disambiguation') {
@@ -1054,7 +1061,7 @@ function reviewAct(f: Finding, action: ChoiceAction) {
     return reviewAdvance(true)
   }
   if (action === 'accept') {
-    dialog.value = { kind: 'citation', finding: f }
+    openCitoid(f)
     return
   }
   if (action === 'edit' && f.type === 'tone') {
@@ -1099,9 +1106,103 @@ function leaveReview() {
   scheduleLayout()
 }
 
+// ── Save dialog ──────────────────────────────────────────────────────────────
+
+const { user } = useConfig()
+const saveOpen = ref(false)
+const saveDiff = ref<DiffBlock[]>([])
+/** Text of every block when the editor opened, for "Review your changes". */
+const originalTexts = new Map<Element, string>()
+
+function blockText(el: Element): string {
+  const clone = el.cloneNode(true) as Element
+  clone.querySelectorAll('[data-ve-ui], style').forEach((n) => n.remove())
+  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function computeDiff(): DiffBlock[] {
+  const out: DiffBlock[] = []
+  const surface = surfaceRef.value!
+  for (const [el, before] of originalTexts) {
+    if (!el.isConnected) {
+      if (before) out.push({ before, after: '' })
+      continue
+    }
+    const after = blockText(el)
+    if (after !== before) out.push({ before, after })
+  }
+  surface.querySelectorAll(DIFF_BLOCKS).forEach((el) => {
+    if (!originalTexts.has(el) && !el.closest('[contenteditable="false"]')) {
+      const after = blockText(el)
+      if (after) out.push({ before: '', after })
+    }
+  })
+  return out
+}
+
+/** "Publish changes": after the pre-save checks, the save dialog. */
 function finishPublish() {
   review.value = null
+  saveDiff.value = computeDiff()
+  saveOpen.value = true
+}
+
+function onSaved() {
+  saveOpen.value = false
   emit('published', cleanHtml())
+}
+
+// ── Citoid ───────────────────────────────────────────────────────────────────
+
+const citoid = ref<{ finding: Finding; anchor: HTMLElement | null; replace: boolean; query?: string } | null>(null)
+let caretAnchor: HTMLElement | null = null
+
+function openCitoid(f: Finding, options: { replace?: boolean; query?: string } = {}) {
+  let anchor: HTMLElement | null = (f.element as HTMLElement | undefined) ?? null
+  if (!anchor && f.data?.paragraph) {
+    // Production collapses the cursor to the paragraph end and opens Citoid there.
+    caretAnchor = document.createElement('span')
+    caretAnchor.className = 've-caret-anchor'
+    caretAnchor.setAttribute('data-ve-ui', '')
+    caretAnchor.setAttribute('contenteditable', 'false')
+    ;(f.data.paragraph as Element).appendChild(caretAnchor)
+    anchor = caretAnchor
+  }
+  if (isMobile.value) closeSheet()
+  citoid.value = { finding: f, anchor, replace: !!options.replace, query: options.query }
+}
+
+function closeCitoid() {
+  caretAnchor?.remove()
+  caretAnchor = null
+  citoid.value = null
+}
+
+const existingReferences = computed<ExistingReference[]>(() => {
+  void citoid.value
+  const list: ExistingReference[] = []
+  surfaceRef.value?.querySelectorAll('ol.mw-references > li').forEach((li, i) => {
+    const text = li.querySelector('.mw-reference-text')
+    if (!text) return
+    list.push({ label: `[${i + 1}]`, html: text.innerHTML })
+  })
+  return list
+})
+
+function onCitationInsert(value: CitationInsert) {
+  const c = citoid.value
+  if (!c) return
+  const root = surfaceRef.value!
+  const f = c.finding
+  closeCitoid()
+  if (f.type === 'citationNeeded') fix.replaceWithCitation(root, f.element!, value.html, value.reuseLabel)
+  else if (f.type === 'convertReference') fix.setReferenceBody(f.element!, value.html)
+  else fix.addCitationToParagraph(root, f.data!.paragraph, value.html, value.reuseLabel)
+  if (review.value) {
+    reviewResolved(f)
+    return
+  }
+  complete(f)
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
@@ -1124,6 +1225,9 @@ onMounted(async () => {
     .querySelectorAll('figure, sup.mw-ref, [typeof~="mw:Transclusion"], table.infobox, .navbox, .reflist, ol.mw-references, style')
     .forEach((el) => el.setAttribute('contenteditable', 'false'))
   originalBlocks = new WeakSet(Array.from(surface.querySelectorAll(BLOCK_SELECTOR)))
+  surface.querySelectorAll(DIFF_BLOCKS).forEach((el) => {
+    if (!el.closest('[contenteditable="false"]')) originalTexts.set(el, blockText(el))
+  })
   try {
     document.execCommand('defaultParagraphSeparator', false, 'p')
   } catch {
@@ -1329,7 +1433,7 @@ const titleFor = (f: Finding) =>
                 </p>
                 <div class="ve-card__actions">
                   <CdxButton v-if="pendingSuggestions.length" @click="viewMore">View more</CdxButton>
-                  <CdxButton action="progressive" weight="primary" @click="publishPathId = null; publish()">{{ STR.publish }}</CdxButton>
+                  <CdxButton action="progressive" @click="publishPathId = null; publish()">{{ STR.publish }}</CdxButton>
                 </div>
               </div>
             </template>
@@ -1425,7 +1529,7 @@ const titleFor = (f: Finding) =>
         <p class="ve-sheet__text">Your change is ready to go live on Wikipedia. You can publish this change now or look for more to improve.</p>
         <div class="ve-sheet__actions">
           <CdxButton v-if="pendingSuggestions.length" @click="viewMore">View more</CdxButton>
-          <CdxButton action="progressive" weight="primary" @click="closeSheet(); publish()">{{ STR.publish }}</CdxButton>
+          <CdxButton action="progressive" @click="closeSheet(); publish()">{{ STR.publish }}</CdxButton>
         </div>
       </template>
       <template v-else-if="(review ? currentReview : sheetFinding) as Finding">
@@ -1473,6 +1577,28 @@ const titleFor = (f: Finding) =>
     <!-- Toggle toasts: dark Minerva toast / Codex toast on desktop -->
     <div v-if="isMobile && toast" :key="toast.id" class="ve-mobile-toast" role="status" aria-live="polite">{{ toast.text }}</div>
     <CdxToast v-else-if="toast" :key="toast.id" type="notice" @user-dismissed="toast = null">{{ toast.text }}</CdxToast>
+
+    <CitoidDialog
+      :open="!!citoid"
+      :skin="skin"
+      :host="page.host"
+      :page-title="page.title"
+      :anchor="citoid?.anchor ?? null"
+      :replace="citoid?.replace"
+      :initial-query="citoid?.query"
+      :references="existingReferences"
+      @insert="onCitationInsert"
+      @cancel="closeCitoid"
+    />
+
+    <PublishDialog
+      :open="saveOpen"
+      :skin="skin"
+      :logged-in="user !== 'logged-out'"
+      :diff="saveDiff"
+      @close="saveOpen = false"
+      @publish="onSaved"
+    />
 
     <VeDialogs
       :kind="dialog?.kind ?? null"
@@ -1799,7 +1925,7 @@ const titleFor = (f: Finding) =>
 }
 
 .ve-hl-bar--check {
-  background-color: var(--color-icon-warning, #ab7f2a);
+  background-color: var(--border-color-warning, #987027);
 }
 
 .ve-hl-bar--success {
@@ -1895,7 +2021,10 @@ const titleFor = (f: Finding) =>
 }
 
 .ve-card--success,
-.ve-card--success.ve-card--hover {
+.ve-card--success.ve-card--hover,
+.ve-card--check.ve-card--success,
+.ve-card--check.ve-card--success.ve-card--expanded,
+.ve-card--check.ve-card--success.ve-card--hover {
   border-color: var(--border-color-base, #a2a9b1);
 }
 
@@ -1991,9 +2120,6 @@ const titleFor = (f: Finding) =>
   gap: 8px;
 }
 
-.ve-card__actions .cdx-button:last-child {
-  flex: 1;
-}
 
 .ve-card__pager {
   display: flex;

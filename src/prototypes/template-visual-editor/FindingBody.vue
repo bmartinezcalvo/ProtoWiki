@@ -5,7 +5,7 @@
  * card and the mobile sheet.
  */
 import { computed, ref, watch } from 'vue'
-import { CdxButton, CdxIcon, CdxProgressBar, CdxRadio } from '@wikimedia/codex'
+import { CdxButton, CdxIcon, CdxRadio } from '@wikimedia/codex'
 import { cdxIconCheck, cdxIconPrevious, cdxIconRobot, cdxIconUserAvatar } from '@wikimedia/codex-icons'
 
 import type { ChoiceAction, Finding } from './engine/checks'
@@ -96,7 +96,6 @@ const footerIcon = computed(() =>
       <div class="finding-body__description" v-html="finding.descriptionHtml" />
       <!-- eslint-disable-next-line vue/no-v-html -->
       <p v-if="finding.promptHtml" class="finding-body__prompt" v-html="finding.promptHtml" />
-      <CdxProgressBar v-if="busy" inline aria-label="Checking" />
       <div class="finding-body__actions">
         <CdxButton
           v-for="choice in choices"
