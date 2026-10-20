@@ -8,6 +8,7 @@ import type { Skin, Theme } from '@/theme'
 import VeEditor from './VeEditor.vue'
 import { STR } from './engine/strings'
 import { useVisualEditorArticle, type VisualEditorPage } from './useVisualEditorArticle'
+import { useWikiPrototypeNavigation } from '@/composables/useWikiPrototypeNavigation'
 
 const props = withDefaults(
   defineProps<{
@@ -17,6 +18,8 @@ const props = withDefaults(
     page: VisualEditorPage | null
     skin: Skin
     startInEditMode?: boolean
+    /** When set, exit / publish navigates to the read prototype instead of in-place read. */
+    readRoute?: string
     prefetchSuggestionCount?: number | null
     lang?: string
     dir?: 'ltr' | 'rtl'
@@ -26,6 +29,7 @@ const props = withDefaults(
     loading: false,
     error: null,
     startInEditMode: false,
+    readRoute: undefined,
     prefetchSuggestionCount: null,
     lang: undefined,
     dir: undefined,
@@ -37,9 +41,14 @@ const editing = defineModel<boolean>('editing', { default: false })
 const suggestionCount = defineModel<number | null>('suggestionCount', { default: null })
 const sidebarOpenModel = defineModel<boolean>('sidebarOpen', { default: false })
 
+const { navigateToWikiPrototype } = useWikiPrototypeNavigation()
+
+const editorOnly = computed(() => Boolean(props.readRoute))
+
 const liveHtmlComputed = computed(() => props.liveHtml ?? '')
 const pageComputed = computed(() => props.page)
 const skinComputed = computed(() => props.skin)
+const startInEditModeRef = computed(() => props.startInEditMode || editorOnly.value)
 
 const {
   editing: veEditing,
@@ -60,7 +69,8 @@ const {
   html: liveHtmlComputed,
   page: pageComputed,
   skin: skinComputed,
-  startInEditMode: toRef(() => props.startInEditMode),
+  startInEditMode: startInEditModeRef,
+  editorOnly,
 })
 
 watch(
@@ -94,6 +104,23 @@ watch(sidebarOpenModel, (value) => {
   if (sidebarOpen.value !== value) sidebarOpen.value = value
 })
 
+function navigateToReadRoute() {
+  const title = props.page?.title
+  if (!props.readRoute || !title?.trim()) return false
+  navigateToWikiPrototype(props.readRoute, title)
+  return true
+}
+
+function handleEditorExit() {
+  if (navigateToReadRoute()) return
+  stopEditing()
+}
+
+function handlePublished(newHtml: string) {
+  if (navigateToReadRoute()) return
+  onPublished(newHtml)
+}
+
 defineExpose({ exitEditForNavigation, onEditClick, onReadClick })
 </script>
 
@@ -114,11 +141,12 @@ defineExpose({ exitEditForNavigation, onEditClick, onReadClick })
         :skin="skin"
         :page="page"
         :section="editSection"
-        @exit="stopEditing"
-        @published="onPublished"
+        @exit="handleEditorExit"
+        @published="handlePublished"
         @sidebar="(open) => (sidebarOpen = open)"
         @detected="(n) => (detectedCount = n)"
       />
+      <p v-else-if="editorOnly" class="ve-page__loading">Opening editor…</p>
       <ArticleRenderer
         v-else
         ref="readerRef"

@@ -14,6 +14,12 @@ interface ArticleLiveCommonProps {
   editable?: boolean
   /** Open edit mode once the article body has loaded (**`editable`** only). */
   startInEditMode?: boolean
+  /** When set without **`editable`**, header Edit navigates here with **`?title=`**. */
+  editRoute?: string
+  /** When set with **`editable`**, leaving read mode navigates here instead of in-place read. */
+  readRoute?: string
+  /** When set, in-article wiki links navigate here with **`?title=`** instead of updating the current URL. */
+  wikiLinkRoute?: string
 }
 
 /** Fixed article: `article` set; the random-only props are forbidden. */
@@ -55,11 +61,16 @@ export type ArticleLiveProps = ArticleLiveFixedProps | ArticleLiveRandomProps
  * `parserReady` hands out a plain element, so `<Teleport>` and any Codex
  * component work with no plumbing.
  */
-import { computed, inject, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, provide, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { CdxMessage, CdxProgressBar } from '@wikimedia/codex'
 
 import ArticleRenderer from './ArticleRenderer.vue'
 import ArticleWrapper from './ArticleWrapper.vue'
+import {
+  attachSectionEditLinkHandler,
+  decorateSectionEditLinks,
+} from './shared/attachSectionEditLinks'
 import { fetchArticleBody } from './shared/fetchArticleBody'
 import { fetchArticleView, type ArticleView } from './shared/fetchArticleView'
 import { DEFAULT_RANDOM_SOURCE, selectRandomArticle } from './shared/selectRandomArticle'
@@ -67,6 +78,12 @@ import VisualEditorArticleShell from '@/components/visual-editor/VisualEditorArt
 import VisualEditorPageLayout from '@/components/visual-editor/VisualEditorPageLayout.vue'
 import { countArticleSuggestions } from '@/components/visual-editor/countArticleSuggestions'
 import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEditCount'
+import {
+  PROTOWIKI_ARTICLE_WIKI_HOST,
+  PROTOWIKI_IN_ARTICLE_WIKI_LINK,
+} from '@/composables/useInArticleWikiLinks'
+import { useWikiPageTitleQuery } from '@/composables/useWikiPageTitleQuery'
+import { useWikiPrototypeNavigation } from '@/composables/useWikiPrototypeNavigation'
 import { wikiHostFromLang } from '@/config'
 import { globalSkin, PROTOWIKI_CHROME_SKIN } from '@/theme'
 
@@ -112,6 +129,9 @@ interface Props {
   languagesCount?: number
   editable?: boolean
   startInEditMode?: boolean
+  editRoute?: string
+  readRoute?: string
+  wikiLinkRoute?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -129,6 +149,9 @@ const props = withDefaults(defineProps<Props>(), {
   languagesCount: undefined,
   editable: false,
   startInEditMode: false,
+  editRoute: undefined,
+  readRoute: undefined,
+  wikiLinkRoute: undefined,
 })
 
 const editing = defineModel<boolean>('editing', { default: false })
@@ -147,6 +170,10 @@ const inheritedSkin = inject(PROTOWIKI_CHROME_SKIN, null)
 const effectiveSkin = computed(
   () => props.skin ?? inheritedSkin?.value ?? globalSkin.value,
 )
+const headerActiveView = computed(() =>
+  props.readRoute ? 'edit' : editing.value ? 'edit' : 'read',
+)
+const isMobileSkin = computed(() => effectiveSkin.value === 'mobile')
 
 const liveHtml = ref<string | null>(null)
 const error = ref<string | null>(null)
@@ -167,6 +194,33 @@ const resolvedLang = ref(props.lang ?? 'en')
 
 const prefetchSuggestionCount = ref<number | null>(null)
 const { editCount, editCountReady } = useEffectiveEditorEditCount()
+const route = useRoute()
+const { navigateToWikiPrototype, resolveWikiPrototypeUrl } = useWikiPrototypeNavigation()
+const { setWikiPageTitle } = useWikiPageTitleQuery()
+
+const articleWikiHost = computed(() => resolvedHost.value)
+
+if (!props.app) {
+  provide(PROTOWIKI_ARTICLE_WIKI_HOST, articleWikiHost)
+  provide(PROTOWIKI_IN_ARTICLE_WIKI_LINK, {
+    navigate(title) {
+      const trimmed = title?.trim()
+      if (!trimmed?.length) return
+      if (props.wikiLinkRoute) {
+        navigateToWikiPrototype(props.wikiLinkRoute, trimmed)
+        return
+      }
+      setWikiPageTitle(trimmed)
+      window.scrollTo({ top: 0 })
+    },
+    resolveUrl(title) {
+      const trimmed = title?.trim()
+      if (!trimmed?.length) return null
+      const path = props.wikiLinkRoute ?? route.path
+      return resolveWikiPrototypeUrl(path, trimmed)
+    },
+  })
+}
 
 const vePage = computed(() => {
   if (!resolvedTitle.value || liveHtml.value === null) return null
@@ -294,16 +348,58 @@ watch(liveHtml, async (html) => {
   if (root) emit('parserReady', root)
 })
 
+let detachReadSectionEdit: (() => void) | null = null
+watch(
+  () =>
+    [
+      props.editRoute,
+      liveHtml.value,
+      effectiveEditable.value,
+      effectiveSkin.value,
+      rendererRef.value?.$el,
+    ] as const,
+  async ([editRoute, html, editable]) => {
+    detachReadSectionEdit?.()
+    detachReadSectionEdit = null
+    if (!editRoute || editable || !html) return
+    await nextTick()
+    setTimeout(() => {
+      const root = rendererRef.value?.$el as HTMLElement | undefined
+      if (!root) return
+      decorateSectionEditLinks(root, isMobileSkin.value)
+      detachReadSectionEdit = attachSectionEditLinkHandler(root, () => onEditNavigate())
+    }, 0)
+  },
+  { flush: 'post' },
+)
+onBeforeUnmount(() => detachReadSectionEdit?.())
+
 watch([editCount, editCountReady], () => {
   if (editCountReady.value && effectiveEditable.value) void refreshPrefetchSuggestionCount()
 })
 
+function navigateToReadRoute() {
+  if (!props.readRoute) return false
+  navigateToWikiPrototype(props.readRoute, resolvedTitle.value)
+  return true
+}
+
 function onEditClick() {
+  if (props.readRoute && editing.value) {
+    navigateToReadRoute()
+    return
+  }
   veShellRef.value?.onEditClick()
 }
 
 function onReadClick() {
+  if (navigateToReadRoute()) return
   veShellRef.value?.onReadClick()
+}
+
+function onEditNavigate() {
+  if (!props.editRoute) return
+  navigateToWikiPrototype(props.editRoute, resolvedTitle.value)
 }
 </script>
 
@@ -325,7 +421,7 @@ function onReadClick() {
       :app="props.app"
       :description="view?.description"
       :lead-image-url="view?.thumbnailUrl ?? undefined"
-      :active-view="editing ? 'edit' : 'read'"
+      :active-view="headerActiveView"
       @edit-click="onEditClick()"
       @read-click="onReadClick()"
     >
@@ -340,6 +436,7 @@ function onReadClick() {
         :page="vePage"
         :skin="effectiveSkin"
         :start-in-edit-mode="startInEditMode"
+        :read-route="props.readRoute"
         :prefetch-suggestion-count="prefetchSuggestionCount"
         :lang="resolvedLang"
         :dir="props.dir"
@@ -359,6 +456,7 @@ function onReadClick() {
     :app="props.app"
     :description="view?.description"
     :lead-image-url="view?.thumbnailUrl ?? undefined"
+    @edit-click="onEditNavigate()"
   >
     <CdxProgressBar v-if="loading" inline aria-label="Loading article" />
 

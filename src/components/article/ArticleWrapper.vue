@@ -132,6 +132,30 @@ const chromeHeaderLabel = computed(() => leadTitle.value || 'Article')
   margin-inline: auto;
 }
 
+.article :deep(.mw-editsection) {
+  margin-inline-start: 13px;
+  font-family: var(--font-family-base, sans-serif);
+  font-size: 0.8125rem;
+  font-weight: var(--font-weight-normal, 400);
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: baseline;
+  unicode-bidi: isolate;
+}
+
+.article :deep(.mw-editsection-bracket) {
+  color: var(--color-base, #202122);
+}
+
+.article :deep(.mw-editsection a) {
+  color: var(--color-progressive, #36c);
+  text-decoration: none;
+}
+
+.article :deep(.mw-editsection a:hover) {
+  text-decoration: underline;
+}
+
 .article[data-skin='mobile'] {
   padding-block-end: var(--spacing-100, 16px);
   padding-block-start: var(--spacing-150, 24px);

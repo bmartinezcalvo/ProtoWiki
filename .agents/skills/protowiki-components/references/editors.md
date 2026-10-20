@@ -1,6 +1,6 @@
 # Visual editor prototyping
 
-ProtoWiki ships a **Visual Editor prototype** integrated through **`ArticleLive`** or **`ArticleCustom`** (**`editable`**, optional **`startInEditMode`**) and the implementation in **`src/components/visual-editor/`** (toolbar, suggestion mode, publish flow). Gallery: **`template-visual-editor/`** (live article, settings panel); **`example-custom-article/`** (**Custom article** — static Wet Leg body with **`editable`**).
+ProtoWiki ships a **Visual Editor prototype** integrated through **`ArticleLive`** or **`ArticleCustom`** (**`editable`**, optional **`startInEditMode`**, optional **`editRoute`** / **`readRoute`** for gallery read↔edit hops) and the implementation in **`src/components/visual-editor/`** (toolbar, suggestion mode, publish flow). Gallery: **`template-visual-editor/`** (edit route; **`readRoute`** back to **`template-article/`**); **`template-article/`** (read route; **`editRoute`** to the VE template); **`example-custom-article/`** (**Custom article** — static Wet Leg body with in-place **`editable`**).
 
 For upstream fidelity experiments before porting UI, Bárbara Martínez Calvo’s repos remain useful references:
 

@@ -124,7 +124,7 @@ mirrors [FakeMediaWiki `wiki-signals`](https://github.com/TodePond/FakeMediaWiki
   (not `ChromeWrapper`); in-app articles are **`<ArticleLive app>`**, not a
   separate component. See
   [`protowiki-app-prototyping`](.agents/skills/protowiki-app-prototyping/SKILL.md).
-- **Article pages:** default **`ChromeWrapper` → `ArticleLive`** (starter **`src/prototypes/template-article/`**). For hand-authored / fine-grained body markup without live fetch, use **`ChromeWrapper` → `ArticleCustom`** or **`ArticleWrapper` → `ArticleRenderer`** — see [`protowiki-components` → `article.md`](.agents/skills/protowiki-components/references/article.md) and **`src/prototypes/example-custom-article/`**.
+- **Article pages:** default **`ChromeWrapper` → `ArticleLive`** (read starter **`src/prototypes/template-article/`**; Visual Editor starter **`src/prototypes/template-visual-editor/`** — linked via **`editRoute`** / **`readRoute`** and shared **`?title=`**). For hand-authored / fine-grained body markup without live fetch, use **`ChromeWrapper` → `ArticleCustom`** or **`ArticleWrapper` → `ArticleRenderer`** — see [`protowiki-components` → `article.md`](.agents/skills/protowiki-components/references/article.md) and **`src/prototypes/example-custom-article/`**.
 
 ## What this repo is not
 

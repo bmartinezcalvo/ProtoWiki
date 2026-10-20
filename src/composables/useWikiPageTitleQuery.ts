@@ -24,9 +24,9 @@ export function useWikiPageTitleQuery() {
 
   const titleFromQuery = computed(() => parseWikiPageTitleQuery(route.query))
 
-  function setWikiPageTitle(title: string): void {
-    const trimmed = title.trim()
-    if (!trimmed.length) return
+  function setWikiPageTitle(title: string | null | undefined): void {
+    const trimmed = title?.trim()
+    if (!trimmed?.length) return
     syncUrlQueryParam('title', trimmed)
   }
 

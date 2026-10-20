@@ -32,7 +32,7 @@ When any of these roots sit inside **`ChromeWrapper`**, they **inherit** effecti
 
 When the derived chrome title is exactly **`Main Page`** (English Wikipedia’s main page title), **`ArticleWrapper`** enables production’s Main Page **`ArticleHeader`** — hidden desktop **`h1`**, **Main Page** tab, no languages control or tagline; on mobile web, a bare header (logged-in users see a **Welcome, …!** greeting). Portal box typography and the two-column **`#mp-upper`** layout are handled in **`src/styles/wiki-skins/mobile-wiki-overrides.css`** (container queries on the parser column).
 
-**Starter:** **`src/prototypes/template-main-page/`** — **`ChromeWrapper`** + **`ArticleLive article="Main Page"`**. No extra props: surfaces do not take a **`mainPage`** flag; title detection is automatic. For hand-authored portal markup, **`ArticleCustom title="Main Page"`** (or **`ArticleWrapper`** + slot) gets the same header chrome.
+**Starter:** **`src/prototypes/template-main-page/`** — static **`ChromeWrapper`** + **`ArticleLive article="Main Page"`** (no **`?title=`**; search and in-article wiki links open **`/template-article?title=…`**). Surfaces do not take a **`mainPage`** flag; title detection is automatic. For hand-authored portal markup, **`ArticleCustom title="Main Page"`** (or **`ArticleWrapper`** + slot) gets the same header chrome.
 
 Other wikis use different main-page titles; pass the correct **`article`** / **`lang`** (and **`host`** if needed) to **`ArticleLive`**.
 
@@ -116,15 +116,26 @@ Web-only **`editable?`** and **`startInEditMode?`** mirror **`ArticleLive`**: on
 
 Live fetch via **`page/html`** (in-memory cache + **`localStorage`**). Single import for **`ChromeWrapper` → live reader** demos.
 
-### Visual Editor (`editable`)
+On web **`ArticleLive`**, in-article links to the same wiki (**`/wiki/…`**) update **`?title=`** on the current prototype route instead of leaving ProtoWiki (see **`useInArticleWikiLinks`** / **`ArticleRenderer`**).
 
-Set **`editable`** on web templates so **`ArticleHeader`**’s Edit tab opens the in-place Visual Editor prototype (implementation under **`src/components/visual-editor/`**). **`startInEditMode`** opens edit mode automatically once the body has loaded — used by **`src/prototypes/template-visual-editor/`**.
+### Visual Editor (`editable`, `editRoute`, `readRoute`)
+
+Gallery **read** and **edit** are split across two templates over the same **`?title=`**:
+
+- **`template-article/`** — read-only **`ArticleLive`**; **`editRoute="/template-visual-editor"`** so **`ArticleHeader`** Edit navigates to the Visual Editor template.
+- **`template-visual-editor/`** — **`editable`** + **`startInEditMode`** + **`readRoute="/template-article"`** so Read, toolbar back, and publish navigate back to the article template.
+
+For a **single route** with in-place read ↔ edit (e.g. hand-authored bodies), set **`editable`** without **`editRoute`** / **`readRoute`** — see **`example-custom-article/`**.
+
+Set **`editable`** on web templates so **`ArticleHeader`**’s Edit tab opens the in-place Visual Editor prototype (implementation under **`src/components/visual-editor/`**). **`startInEditMode`** opens edit mode automatically once the body has loaded.
 
 - **`editable`** is ignored when **`app`** is true (in-app articles stay read-only).
+- **`editRoute?`** — when **`!editable`**, header Edit calls **`useWikiPrototypeNavigation()`** to push the path with the resolved title and preserved appearance query params.
+- **`readRoute?`** — when **`editable`**, the route is **editor-only** (no inline read surface); Read tab, VE exit, and publish navigate to that path.
 - **`v-model:editing`** and **`v-model:suggestion-count`** support VE-template chrome (footer/header while editing, settings panel counts).
 - **Suggestion Mode settings UI** (`SuggestionSettingsPanel` in **`src/components/settings/`**) opens from the **gallery home** toolbar (lightbulb) and the Visual Editor template **main menu**; other **`editable`** templates still run suggestions with the same persisted store in **`src/components/visual-editor/settings.ts`**.
 
-**Starters:** **`template-main-page/`**, **`template-article/`**, and **`template-visual-editor/`** — each is **`ChromeWrapper`** + **`ArticleLive`** (VE adds **`start-in-edit-mode`** and a custom **`#menu`** slot).
+**Starters:** **`template-main-page/`** and **`template-article/`** — **`ChromeWrapper`** + read **`ArticleLive`**; **`template-visual-editor/`** adds **`editable`**, **`start-in-edit-mode`**, **`read-route`**, and a custom **`#menu`** slot.
 
 ### Random mode (omit `article`)
 
@@ -158,7 +169,7 @@ Selection only resolves a **title** (a lightweight, title-only request for the r
 
 ### Props (`ArticleLive`)
 
-**`host`** (**wiki hostname** for **`page/html`** and cache keys; default derived from **`lang`** via **`wikiHostFromLang()`**, so **`en.wikipedia.org`** unless you set **`lang`** — random mode derives it from the chosen `langs` instead), **`article`** (REST page title → **`ArticleWrapper`** **`title`**; **omit for random mode**), **`app?`** (in-app reading screen — see [In-app articles](#in-app-articles-app)), **`editable?`** (web Visual Editor — see [Visual Editor](#visual-editor-editable)), **`startInEditMode?`** (**`editable`** only), **`source?`** (**`'random'`** | **`'vital'`**, random mode only), **`langs?`** (**`string[]`**, random mode only), **`vitalLevel?`** (**`number`**, default **`2`**, `source="vital"` only), **`header`**, **`languagesCount?`**, **`lang`**, **`dir`**, **`skin`**, **`theme`**.
+**`host`** (**wiki hostname** for **`page/html`** and cache keys; default derived from **`lang`** via **`wikiHostFromLang()`**, so **`en.wikipedia.org`** unless you set **`lang`** — random mode derives it from the chosen `langs` instead), **`article`** (REST page title → **`ArticleWrapper`** **`title`**; **omit for random mode**), **`app?`** (in-app reading screen — see [In-app articles](#in-app-articles-app)), **`editable?`** (web Visual Editor — see [Visual Editor](#visual-editor-editable-editroute-readroute)), **`startInEditMode?`** (**`editable`** only), **`editRoute?`** / **`readRoute?`** (cross-prototype read/edit navigation — see [Visual Editor](#visual-editor-editable-editroute-readroute)), **`source?`** (**`'random'`** | **`'vital'`**, random mode only), **`langs?`** (**`string[]`**, random mode only), **`vitalLevel?`** (**`number`**, default **`2`**, `source="vital"` only), **`header`**, **`languagesCount?`**, **`lang`**, **`dir`**, **`skin`**, **`theme`**.
 
 **`v-model:editing`** and **`v-model:suggestion-count`** are optional bindings for templates that adjust chrome while editing.
 

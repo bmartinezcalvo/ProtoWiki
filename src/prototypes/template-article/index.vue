@@ -26,7 +26,7 @@ const article = computed(() => titleFromQuery.value)
 
 provideChromeSearchHandlers({
   onSelect(title) {
-    setWikiPageTitle(title)
+    if (title?.trim()) setWikiPageTitle(title)
   },
   onSubmit({ title }) {
     if (title) setWikiPageTitle(title)
@@ -34,13 +34,17 @@ provideChromeSearchHandlers({
 })
 
 function onTitleResolved(title: string) {
-  setWikiPageTitle(title)
+  if (title?.trim()) setWikiPageTitle(title)
 }
 </script>
 
 <template>
   <ChromeWrapper>
-    <ArticleLive editable :article="article" @title-resolved="onTitleResolved" />
+    <ArticleLive
+      edit-route="/template-visual-editor"
+      :article="article"
+      @title-resolved="onTitleResolved"
+    />
 
     <!-- Draw from Wikipedia's Vital articles instead of a purely random page: -->
     <!-- <ArticleLive source="vital" /> -->

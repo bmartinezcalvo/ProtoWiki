@@ -36,18 +36,15 @@ const article = computed(() => titleFromQuery.value)
 
 provideChromeSearchHandlers({
   onSelect(title) {
-    editing.value = false
     setWikiPageTitle(title)
   },
   onSubmit({ title }) {
-    if (!title) return
-    editing.value = false
-    setWikiPageTitle(title)
+    if (!title) setWikiPageTitle(title)
   },
 })
 
 function onTitleResolved(title: string) {
-  setWikiPageTitle(title)
+  if (title?.trim()) setWikiPageTitle(title)
 }
 </script>
 
@@ -90,6 +87,7 @@ function onTitleResolved(title: string) {
       v-model:suggestion-count="suggestionCount"
       editable
       start-in-edit-mode
+      read-route="/template-article"
       :article="article"
       @title-resolved="onTitleResolved"
     />

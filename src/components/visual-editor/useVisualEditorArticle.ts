@@ -8,6 +8,10 @@ import {
   type Ref,
 } from 'vue'
 
+import {
+  attachSectionEditLinkHandler,
+  decorateSectionEditLinks,
+} from '@/components/article/shared/attachSectionEditLinks'
 import type { Skin } from '@/theme'
 
 export interface VisualEditorPage {
@@ -23,12 +27,14 @@ export interface UseVisualEditorArticleOptions {
   skin: ComputedRef<Skin>
   /** When true, enter edit mode once `page` and `html` are ready. */
   startInEditMode: Ref<boolean>
+  /** Never show the inline read surface — stay in (or loading toward) edit mode. */
+  editorOnly?: Ref<boolean>
   /** Fires when the loaded article identity changes (new fetch). */
   onArticleIdentityChange?: () => void
 }
 
 export function useVisualEditorArticle(options: UseVisualEditorArticleOptions) {
-  const { html, page, skin, startInEditMode, onArticleIdentityChange } = options
+  const { html, page, skin, startInEditMode, editorOnly, onArticleIdentityChange } = options
 
   const editing = ref(false)
   const editKey = ref(0)
@@ -45,7 +51,7 @@ export function useVisualEditorArticle(options: UseVisualEditorArticleOptions) {
   const displayHtml = computed(() => publishedHtml.value ?? html.value)
 
   function resetForNewArticle() {
-    editing.value = false
+    if (!editorOnly?.value) editing.value = false
     sidebarOpen.value = false
     publishedHtml.value = null
     detectedCount.value = null
@@ -61,6 +67,7 @@ export function useVisualEditorArticle(options: UseVisualEditorArticleOptions) {
   }
 
   function stopEditing() {
+    if (editorOnly?.value) return
     editing.value = false
     sidebarOpen.value = false
   }
@@ -86,63 +93,35 @@ export function useVisualEditorArticle(options: UseVisualEditorArticleOptions) {
     window.scrollTo({ top: 0 })
   }
 
-  function decorateSections() {
-    const root = readerRef.value?.$el
-    if (!root || isMobile.value) return
-    root
-      .querySelectorAll<HTMLElement>('section[data-mw-section-id] > :is(h2, h3, h4, h5, h6)')
-      .forEach((heading) => {
-        const id = heading.parentElement?.getAttribute('data-mw-section-id')
-        if (!id || Number(id) <= 0 || heading.querySelector('.mw-editsection')) return
-        const wrap = document.createElement('span')
-        wrap.className = 'mw-editsection'
-        wrap.innerHTML =
-          '<span class="mw-editsection-bracket">[</span><a href="#" class="ve-section-edit"></a><span class="mw-editsection-bracket">]</span>'
-        const link = wrap.querySelector('a')!
-        link.textContent = 'edit'
-        link.title = `Edit section: ${heading.textContent?.trim() ?? ''}`
-        link.dataset.section = id
-        heading.appendChild(wrap)
-      })
-  }
-
-  function onReaderClick(e: MouseEvent) {
-    const target = e.target as Element | null
-    const trigger = target?.closest('.ve-section-edit, .protowiki-mobile-h2__edit')
-    if (!trigger) return
-    const section =
-      (trigger as HTMLElement).dataset.section ??
-      trigger.closest('section[data-mw-section-id]')?.getAttribute('data-mw-section-id')
-    if (!section) return
-    e.preventDefault()
-    e.stopPropagation()
-    startEditing(Number(section) > 0 ? section : null)
-  }
-
-  let listeningOn: HTMLElement | null = null
+  let detachSectionEdit: (() => void) | null = null
   watch(
     () => [readerRef.value?.$el, displayHtml.value, skin.value, editing.value] as const,
     async () => {
       await nextTick()
       setTimeout(() => {
-        const root = readerRef.value?.$el ?? null
-        if (root !== listeningOn) {
-          listeningOn?.removeEventListener('click', onReaderClick, true)
-          root?.addEventListener('click', onReaderClick, true)
-          listeningOn = root
-        }
-        decorateSections()
+        detachSectionEdit?.()
+        detachSectionEdit = null
+        const root = readerRef.value?.$el as HTMLElement | undefined
+        if (!root || editing.value) return
+        decorateSectionEditLinks(root, isMobile.value)
+        detachSectionEdit = attachSectionEditLinkHandler(root, (section) => startEditing(section))
       }, 0)
     },
     { flush: 'post' },
   )
-  onBeforeUnmount(() => listeningOn?.removeEventListener('click', onReaderClick, true))
+  onBeforeUnmount(() => detachSectionEdit?.())
 
   let autoStartedForTitle: string | null = null
   watch(
-    () => [page.value?.title, displayHtml.value, startInEditMode.value] as const,
-    ([title, bodyHtml, shouldStart]) => {
-      if (!title || !bodyHtml || !shouldStart) return
+    () =>
+      [
+        page.value?.title,
+        displayHtml.value,
+        startInEditMode.value,
+        editorOnly?.value,
+      ] as const,
+    ([title, bodyHtml, shouldStart, onlyEditor]) => {
+      if (!title || !bodyHtml || (!shouldStart && !onlyEditor)) return
       if (autoStartedForTitle === title) return
       autoStartedForTitle = title
       startEditing(null)
