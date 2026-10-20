@@ -49,18 +49,32 @@ interface Props {
   skin?: Skin
   /** Which page-action tab is selected (desktop): **`'read'`** or **`'edit'`**. */
   activeView?: 'read' | 'edit'
+  /**
+   * Main Page header, as production renders it. Desktop: the heading is visually
+   * hidden, with no languages button or tagline, and the first tab reads
+   * **Main Page**. Mobile: no tabs or toolbar; the heading is hidden logged out
+   * and reads “Welcome, Name!” logged in.
+   */
+  mainPage?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   languagesCount: 18,
   skin: undefined,
   activeView: 'read',
+  mainPage: false,
 })
 
 const inheritedSkin = inject(PROTOWIKI_CHROME_SKIN)
 const effectiveSkin = computed<Skin>(() => props.skin ?? inheritedSkin?.value ?? globalSkin.value)
-const { user } = useConfig()
+const { user, displayName } = useConfig()
 const isLoggedOut = computed(() => user.value === 'logged-out')
+/** Main Page on mobile: no tabs or toolbar, only the heading. */
+const bareMainPage = computed(() => props.mainPage && effectiveSkin.value === 'mobile')
+/** Logged-in Main Page on mobile: the heading is a visible greeting. */
+const greeting = computed(() =>
+  bareMainPage.value && !isLoggedOut.value ? `Welcome, ${displayName.value}!` : undefined,
+)
 
 const languagesButtonLabel = computed(() => {
   const n = props.languagesCount ?? 18
@@ -120,12 +134,26 @@ function onLanguagePick(row: ArticleLanguageLink) {
 </script>
 
 <template>
-  <header class="article-header" :data-skin="effectiveSkin">
+  <header
+    class="article-header"
+    :class="{ 'article-header--main-page': props.mainPage }"
+    :data-skin="effectiveSkin"
+  >
     <div class="article-header__title-row">
-      <h1 class="article-header__title">
-        <slot name="title">{{ title }}</slot>
+      <h1
+        class="article-header__title"
+        :class="{
+          'article-header__title--hidden': props.mainPage && !greeting,
+          'article-header__title--greeting': greeting,
+        }"
+      >
+        <template v-if="greeting">{{ greeting }}</template>
+        <slot v-else name="title">{{ title }}</slot>
       </h1>
-      <div v-if="effectiveSkin === 'desktop'" class="article-header__lang-anchor">
+      <div
+        v-if="effectiveSkin === 'desktop' && !props.mainPage"
+        class="article-header__lang-anchor"
+      >
         <button
           ref="langAnchor"
           type="button"
@@ -142,7 +170,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
       </div>
     </div>
 
-    <div class="article-header__toolbar">
+    <div v-if="!bareMainPage" class="article-header__toolbar">
       <nav class="article-header__tabs" aria-label="Page tabs">
         <a
           href="#"
@@ -150,7 +178,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
           aria-current="page"
           @click.prevent="$emit('articleClick')"
         >
-          Article
+          {{ props.mainPage ? 'Main Page' : 'Article' }}
         </a>
         <a href="#" class="article-header__tab" @click.prevent="$emit('talkClick')"> Talk </a>
       </nav>
@@ -208,7 +236,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
     </div>
 
     <div
-      v-if="effectiveSkin === 'mobile'"
+      v-if="effectiveSkin === 'mobile' && !bareMainPage"
       class="article-header__icon-toolbar"
       :class="{ 'article-header__icon-toolbar--logged-out': isLoggedOut }"
       aria-label="Page actions"
@@ -348,7 +376,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
       <a href="#" @click.prevent>saved items</a>.
     </CdxToast>
 
-    <p v-if="effectiveSkin === 'desktop'" class="article-header__tagline">
+    <p v-if="effectiveSkin === 'desktop' && !props.mainPage" class="article-header__tagline">
       {{ DEFAULT_TAGLINE }}
     </p>
   </header>
@@ -376,6 +404,25 @@ function onLanguagePick(row: ArticleLanguageLink) {
   font-weight: var(--font-weight-normal);
   line-height: var(--line-height-xxx-small, 1.375);
   color: var(--color-base);
+}
+
+/* Visually hidden but still the page's `h1` for assistive tech (Main Page). */
+.article-header__title--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Main Page: the title row holds only the hidden heading, so the tabs lead. */
+.article-header--main-page .article-header__title-row {
+  padding: 0;
+}
+
+.article-header--main-page .article-header__toolbar {
+  border-top: none;
 }
 
 .article-header__lang-anchor {
@@ -625,6 +672,13 @@ function onLanguagePick(row: ArticleLanguageLink) {
 
 .article-header[data-skin='mobile'] .article-header__title {
   font-size: 1.625rem;
+}
+
+/* Logged-in Main Page greeting: GrowthExperiments' 1.7em serif Homepage title. */
+.article-header[data-skin='mobile'] .article-header__title--greeting {
+  margin-bottom: var(--spacing-75, 12px);
+  font-size: 1.7rem;
+  line-height: 1.375;
 }
 
 .article-header[data-skin='mobile'] .article-header__title-row {
