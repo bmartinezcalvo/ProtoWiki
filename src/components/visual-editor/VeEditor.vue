@@ -1453,8 +1453,6 @@ const loadingPhase = ref(0)
 const loadingFound = ref(0)
 const welcomeOpen = ref(false)
 const welcomeCount = ref(0)
-/** Fresh URL per opening, so the GIF (which plays once) starts again. */
-const welcomeImage = ref(welcomeGlobe)
 const beforeYouGoOpen = ref(false)
 /** Came in through the welcome's "View suggestions": publish prompt on the first completion. */
 const guided = ref(false)
@@ -1482,7 +1480,6 @@ function startDiscoverability() {
   if (!pendingSuggestions.value.length) return
   if (firstTime) {
     welcomeCount.value = pendingSuggestions.value.length
-    welcomeImage.value = `${welcomeGlobe}${welcomeGlobe.includes('?') ? '&' : '?'}play=${Date.now()}`
     welcomeOpen.value = true
     return
   }
@@ -1958,7 +1955,7 @@ const titleFor = (f: Finding) =>
         There {{ welcomeCount === 1 ? 'is 1 suggestion' : `are ${welcomeCount} suggestions` }} to improve this
         article. They're optional guided tasks that you can complete or dismiss.
       </p>
-      <img class="ve-welcome__image" :src="welcomeImage" width="320" height="256" alt="" />
+      <img class="ve-welcome__image" :src="welcomeGlobe" width="320" height="256" alt="" />
       <template #footer>
         <div class="ve-leave__actions ve-leave__actions--stacked">
           <CdxButton :size="isMobile ? 'large' : 'medium'" action="progressive" weight="primary" @click="welcomeViewSuggestions">View suggestions</CdxButton>
