@@ -892,21 +892,12 @@ function dismiss(f: Finding) {
       status.set(f.id, 'dismissed')
       closeSheet()
       scheduleLayout()
-      if (guided.value) goToNextSuggestion(f)
     }, 260)
     return
   }
   status.set(f.id, 'dismissed')
   if (focusedId.value === f.id) focusedId.value = null
   scheduleLayout()
-  if (guided.value && !review.value) goToNextSuggestion(f)
-}
-
-/** "View suggested edits": the pending suggestion after `f` (wrapping to the first). */
-function goToNextSuggestion(f: Finding) {
-  const items = pendingDisplayed.value.filter((d) => d.mode === 'suggestion' && d.id !== f.id)
-  const next = items.find((d) => byPosition(d, f) > 0) ?? items[0]
-  if (next) openSuggestion(next)
 }
 
 /** Scroll to a suggestion and open it (desktop card / mobile sheet). */
@@ -1441,8 +1432,8 @@ watch(boxes, () => updateViewport())
 //
 // Only where an `ArticleLive` opts in (`suggestions-indicator`). Two flows,
 // from "First time using suggestion mode" (read when the editor opens):
-// - first time: welcome dialog → "View suggestions" (guided: Dismiss goes to
-//   the next one) / "Not now" (no nudges) / X (pulse the first visible
+// - first time: welcome dialog → "View suggestions" (opens the first one) /
+//   "Not now" (no nudges) / X (pulse the first visible
 //   suggestion, or bounce "View suggestions" when none is visible);
 // - next times: no dialog; after a few idle seconds (no scrolling or typing)
 //   the first visible suggestion or "View suggestions" bounces, and leaving
@@ -1461,7 +1452,7 @@ const welcomeCount = ref(0)
 /** Fresh URL per opening, so the GIF (which plays once) starts again. */
 const welcomeImage = ref(welcomeGlobe)
 const beforeYouGoOpen = ref(false)
-/** "View suggested edits": after Dismiss, open the next suggestion. */
+/** Came in through the welcome's "View suggestions": publish prompt on the first completion. */
 const guided = ref(false)
 /** 'pulse': first-time nudge (always on). 'idle': next-times nudge after IDLE_MS. */
 const nudgeMode = ref<'pulse' | 'idle' | null>(null)
