@@ -30,7 +30,8 @@ defineProps<{
   </span>
 </template>
 
-<style scoped>
+<!-- Global: Minerva section headings build the same markup outside Vue. -->
+<style>
 .edit-suggestions-indicator {
   position: relative;
   display: inline-flex;

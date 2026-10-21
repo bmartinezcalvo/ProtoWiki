@@ -10,7 +10,7 @@
  *   lightbulbs + a bottom sheet with "N of M" pagination.
  * - Publish runs the pre-save "Before publishing" step with checks only.
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { CdxButton, CdxDialog, CdxIcon, CdxToast } from '@wikimedia/codex'
 import {
   cdxIconAlert,
@@ -51,6 +51,8 @@ import {
 } from './engine/editChecks'
 import { STR } from './engine/strings'
 import { applySuggestionSettings, suggestionSettings } from './settings'
+import welcomeGlobe from './assets/neutral-baby-globe.gif'
+import { PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR } from '@/components/article/shared/editSuggestionsIndicator'
 
 const props = defineProps<{
   html: string
@@ -364,10 +366,7 @@ watch(
 
 watch(suggestionsOn, (on) => {
   if (!modeEnabled.value) return
-  if (!isMobile.value) {
-    suggestionSettings.rememberedToggle = on
-    suggestionSettings.firstTime = false
-  }
+  if (!isMobile.value) suggestionSettings.rememberedToggle = on
   emit('sidebar', on && !isMobile.value)
   if (!on) {
     sheetOpen.value = false
@@ -525,6 +524,8 @@ const pillColumn = ref<{ left: string; width: string }>({ left: '0px', width: '3
 const anyInView = ref(true)
 const seenOnMobile = ref(false)
 const bannerDismissed = ref(false)
+/** First pending suggestion whose highlight is in the viewport (discoverability nudges). */
+const firstVisibleId = ref<string | null>(null)
 
 function updateViewport() {
   const wrap = wrapRef.value
@@ -537,13 +538,17 @@ function updateViewport() {
   let nearestAbove = -Infinity
   let nearestBelow = Infinity
   let inView = false
+  let firstVisible: string | null = null
   for (const f of pendingDisplayed.value) {
     if (!boxes.value.get(f.id)?.length) continue
     const top = desiredTop(f) + origin.top
-    if (top >= viewTop && top <= viewBottom) inView = true
-    else if (top < viewTop) nearestAbove = Math.max(nearestAbove, top)
+    if (top >= viewTop && top <= viewBottom) {
+      inView = true
+      firstVisible ??= f.id
+    } else if (top < viewTop) nearestAbove = Math.max(nearestAbove, top)
     else nearestBelow = Math.min(nearestBelow, top)
   }
+  firstVisibleId.value = firstVisible
   anyInView.value = inView
   if (inView && isMobile.value) seenOnMobile.value = true
   if (inView) offscreenDirection.value = null
@@ -674,6 +679,7 @@ let lastBlock: Element | null = null
 const pageInfo = computed(() => ({ lang: props.page.lang, title: props.page.title }))
 
 function onInput() {
+  restartIdle()
   hasChanges.value = true
   canRedo.value = false
   const block = blockOf(window.getSelection()?.anchorNode ?? null)
@@ -823,7 +829,7 @@ function complete(f: Finding, message?: string) {
   }
   if (focusedId.value === f.id) focusedId.value = null
   const isSuggestion = f.mode === 'suggestion'
-  if (isSuggestion && !publishPathShown && editorShowsPublishPath(editCount.value)) {
+  if (isSuggestion && !publishPathShown && (guided.value || editorShowsPublishPath(editCount.value))) {
     // `showPublishPath`: once, for the first completed suggestion.
     publishPathShown = true
     publishPathId.value = f.id
@@ -852,12 +858,27 @@ function dismiss(f: Finding) {
       status.set(f.id, 'dismissed')
       closeSheet()
       scheduleLayout()
+      if (guided.value) goToNextSuggestion(f)
     }, 260)
     return
   }
   status.set(f.id, 'dismissed')
   if (focusedId.value === f.id) focusedId.value = null
   scheduleLayout()
+  if (guided.value && !review.value) goToNextSuggestion(f)
+}
+
+/** "View suggested edits": the pending suggestion after `f` (wrapping to the first). */
+function goToNextSuggestion(f: Finding) {
+  const items = pendingDisplayed.value.filter((d) => d.mode === 'suggestion' && d.id !== f.id)
+  const next = items.find((d) => byPosition(d, f) > 0) ?? items[0]
+  if (next) openSuggestion(next)
+}
+
+/** Scroll to a suggestion and open it (desktop card / mobile sheet). */
+function openSuggestion(f: Finding) {
+  scrollToFinding(f)
+  setTimeout(() => focus(f), isMobile.value ? 600 : 400)
 }
 
 async function act(f: Finding, action: ChoiceAction, reason?: string) {
@@ -1325,6 +1346,7 @@ let resizeObserver: ResizeObserver | null = null
 
 function onScroll() {
   updateViewport()
+  restartIdle()
 }
 
 onMounted(async () => {
@@ -1353,7 +1375,8 @@ onMounted(async () => {
   resizeObserver = new ResizeObserver(() => scheduleLayout())
   resizeObserver.observe(surface)
   const detection = runDetection()
-  await minimumLoad
+  if (discoverability) await discoverabilityLoading(detection)
+  else await minimumLoad
   loadingEditor.value = false
   emit('sidebar', suggestionsOn.value && !isMobile.value)
   if (!isMobile.value && props.section) nextTick(() => scrollToSection(props.section!))
@@ -1361,6 +1384,7 @@ onMounted(async () => {
   scheduleLayout()
   await detection
   updateViewport()
+  if (discoverability) nextTick(startDiscoverability)
 })
 
 onBeforeUnmount(() => {
@@ -1369,11 +1393,132 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleLayout)
   resizeObserver?.disconnect()
   clearTimeout(layoutTimer)
+  clearTimeout(idleTimer)
 })
 
 watch(displayed, () => scheduleLayout())
 watch([focusedId, () => successIds.size, publishPathId], () => nextTick(layoutCards))
 watch(boxes, () => updateViewport())
+
+// ── Suggestions discoverability ──────────────────────────────────────────────
+//
+// Only where an `ArticleLive` opts in (`suggestions-indicator`). Two flows,
+// from "First time using suggestion mode" (read when the editor opens):
+// - first time: welcome dialog → "View suggestions" (guided: Dismiss goes to
+//   the next one) / "Not now" (no nudges) / X (pulse the first visible
+//   suggestion, or bounce "View suggestions" when none is visible);
+// - next times: no dialog; after a few idle seconds (no scrolling or typing)
+//   the first visible suggestion or "View suggestions" bounces, and leaving
+//   without changes asks "Before you go".
+// Desktop has no gutter lightbulbs: its first visible card bounces instead.
+
+const discoverability = !!inject(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, null)
+const firstTime = suggestionSettings.firstTime
+const IDLE_MS = 3000
+
+/** Loading messages: 1 "Loading editor…", 2 "Looking for suggestions…", 3 "N found", 4 fade out. */
+const loadingPhase = ref(0)
+const loadingFound = ref(0)
+const welcomeOpen = ref(false)
+const welcomeCount = ref(0)
+/** Fresh URL per opening, so the GIF (which plays once) starts again. */
+const welcomeImage = ref(welcomeGlobe)
+const beforeYouGoOpen = ref(false)
+/** "View suggested edits": after Dismiss, open the next suggestion. */
+const guided = ref(false)
+/** 'pulse': first-time nudge (always on). 'idle': next-times nudge after IDLE_MS. */
+const nudgeMode = ref<'pulse' | 'idle' | null>(null)
+const idle = ref(false)
+let idleTimer: ReturnType<typeof setTimeout> | undefined
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function discoverabilityLoading(detection: Promise<void>) {
+  loadingPhase.value = 1
+  await wait(1200)
+  loadingPhase.value = 2
+  await Promise.all([detection, wait(1000)])
+  loadingFound.value = pendingSuggestions.value.length
+  loadingPhase.value = 3
+  await wait(1300)
+  loadingPhase.value = 4
+  await wait(300)
+  loadingPhase.value = 0
+}
+
+function startDiscoverability() {
+  if (!pendingSuggestions.value.length) return
+  if (firstTime) {
+    welcomeCount.value = pendingSuggestions.value.length
+    welcomeImage.value = `${welcomeGlobe}${welcomeGlobe.includes('?') ? '&' : '?'}play=${Date.now()}`
+    welcomeOpen.value = true
+    return
+  }
+  nudgeMode.value = 'idle'
+  restartIdle()
+}
+
+function restartIdle() {
+  clearTimeout(idleTimer)
+  idle.value = false
+  if (nudgeMode.value !== 'idle') return
+  idleTimer = setTimeout(() => (idle.value = true), IDLE_MS)
+}
+
+/** Opening any suggestion ends the nudges. */
+watch(focusedId, (id) => {
+  if (!id || !nudgeMode.value) return
+  nudgeMode.value = null
+  clearTimeout(idleTimer)
+  idle.value = false
+})
+
+const nudging = computed(
+  () =>
+    !!nudgeMode.value &&
+    (nudgeMode.value === 'pulse' || idle.value) &&
+    !focusedId.value &&
+    !sheetOpen.value &&
+    !review.value &&
+    suggestionsOn.value,
+)
+const pulseMarkId = computed(() => (nudging.value && nudgeMode.value === 'pulse' && isMobile.value ? firstVisibleId.value : null))
+const bounceMarkId = computed(() => (nudging.value && nudgeMode.value === 'idle' && isMobile.value ? firstVisibleId.value : null))
+const bounceCardId = computed(() => (nudging.value && !isMobile.value ? firstVisibleId.value : null))
+const pillBouncing = computed(() => nudging.value && !firstVisibleId.value)
+
+function openFirstSuggestion() {
+  const first = pendingDisplayed.value.find((f) => f.mode === 'suggestion')
+  if (first) openSuggestion(first)
+}
+
+/** Welcome dialog buttons close it themselves; any other close is the X. */
+let welcomeChoice = false
+function welcomeViewSuggestions() {
+  welcomeChoice = true
+  welcomeOpen.value = false
+  guided.value = true
+  openFirstSuggestion()
+}
+function welcomeNotNow() {
+  welcomeChoice = true
+  welcomeOpen.value = false
+  bannerDismissed.value = true
+}
+function onWelcomeOpen(open: boolean) {
+  welcomeOpen.value = open
+  if (open || welcomeChoice) return
+  nudgeMode.value = 'pulse'
+}
+
+function beforeYouGoViewSuggestions() {
+  beforeYouGoOpen.value = false
+  openFirstSuggestion()
+}
+function beforeYouGoLeave() {
+  beforeYouGoOpen.value = false
+  emit('exit')
+}
 
 // ── Leaving the editor ───────────────────────────────────────────────────────
 
@@ -1382,6 +1527,7 @@ const leaveOpen = ref(false)
 
 function requestExit() {
   if (hasChanges.value) leaveOpen.value = true
+  else if (discoverability && !firstTime && pendingSuggestions.value.length) beforeYouGoOpen.value = true
   else emit('exit')
 }
 
@@ -1426,6 +1572,8 @@ const titleFor = (f: Finding) =>
       :can-publish="hasChanges && !publishing"
       :review="!!review"
       :loading="loadingEditor"
+      :loading-phase="loadingPhase"
+      :loading-found="loadingFound"
       @undo="undo"
       @redo="redo"
       @close="requestExit"
@@ -1497,7 +1645,13 @@ const titleFor = (f: Finding) =>
             :key="mark.ids.join()"
             type="button"
             class="ve-gutter__mark"
-            :class="`ve-gutter__mark--${mark.state}`"
+            :class="[
+              `ve-gutter__mark--${mark.state}`,
+              {
+                've-gutter__mark--pulse': !!pulseMarkId && mark.ids.includes(pulseMarkId),
+                've-gutter__mark--bounce': !!bounceMarkId && mark.ids.includes(bounceMarkId),
+              },
+            ]"
             :style="{ top: `${mark.top}px` }"
             :aria-label="mark.state === 'check' ? 'Show check' : 'Show suggestion'"
             @mousedown.prevent
@@ -1562,6 +1716,7 @@ const titleFor = (f: Finding) =>
               've-card--hover': hoverId === f.id,
               've-card--check': f.mode === 'check',
               've-card--success': successIds.has(f.id) || publishPathId === f.id,
+              've-card--bounce': bounceCardId === f.id,
             }"
             :style="{ top: `${cardTops.get(f.id) ?? 0}px` }"
             @mouseenter="hoverId = f.id"
@@ -1619,12 +1774,12 @@ const titleFor = (f: Finding) =>
 
         <!-- View suggestions -->
         <div
-          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed"
+          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen"
           class="ve-view-pill-wrap"
           :class="{ 've-view-pill-wrap--up': offscreenDirection === 'up' }"
           :style="pillColumn"
         >
-          <div class="ve-view-pill" role="group" aria-label="View suggestions">
+          <div class="ve-view-pill" :class="{ 've-view-pill--bounce': pillBouncing }" role="group" aria-label="View suggestions">
             <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
               <CdxIcon :icon="bannerDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
               View suggestions
@@ -1645,10 +1800,15 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: View suggestions banner -->
     <div
-      v-if="isMobile && !review && suggestionsOn && !detecting && !seenOnMobile && !sheetOpen && (pendingDisplayed.length || onlyElsewhere) && !bannerDismissed"
+      v-if="isMobile && !review && suggestionsOn && !detecting && !seenOnMobile && !sheetOpen && (pendingDisplayed.length || onlyElsewhere) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen"
       class="ve-mobile-banner"
     >
-      <div class="ve-view-pill ve-view-pill--mobile" role="group" aria-label="View suggestions">
+      <div
+        class="ve-view-pill ve-view-pill--mobile"
+        :class="{ 've-view-pill--bounce': pillBouncing }"
+        role="group"
+        aria-label="View suggestions"
+      >
         <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
           <CdxIcon :icon="bannerDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
           View suggestions
@@ -1731,6 +1891,46 @@ const titleFor = (f: Finding) =>
     <!-- Toggle toasts: dark Minerva toast / Codex toast on desktop -->
     <div v-if="isMobile && toast" :key="toast.id" class="ve-mobile-toast" role="status" aria-live="polite">{{ toast.text }}</div>
     <CdxToast v-else-if="toast" :key="toast.id" type="notice" @user-dismissed="toast = null">{{ toast.text }}</CdxToast>
+
+    <!-- Discoverability, first time: welcome. Neutral Baby Globe, Wikimedia Foundation, CC BY-SA 4.0
+         (https://commons.wikimedia.org/wiki/File:Neutral_Baby_Globe.gif), scaled down. -->
+    <CdxDialog
+      :open="welcomeOpen"
+      class="ve-welcome"
+      :class="{ 've-welcome--mobile': isMobile }"
+      title="Discover ways to improve this article"
+      use-close-button
+      @update:open="onWelcomeOpen"
+    >
+      <p class="ve-welcome__text">
+        There {{ welcomeCount === 1 ? 'is 1 suggestion' : `are ${welcomeCount} suggestions` }} to improve this
+        article. They're optional guided tasks that you can complete or dismiss.
+      </p>
+      <img class="ve-welcome__image" :src="welcomeImage" width="320" height="256" alt="" />
+      <template #footer>
+        <div class="ve-leave__actions ve-leave__actions--stacked">
+          <CdxButton action="progressive" weight="primary" @click="welcomeViewSuggestions">View suggestions</CdxButton>
+          <CdxButton @click="welcomeNotNow">Not now</CdxButton>
+        </div>
+      </template>
+    </CdxDialog>
+
+    <!-- Discoverability, next times: leaving without changes while suggestions remain. -->
+    <CdxDialog v-model:open="beforeYouGoOpen" class="ve-leave" title="Before you go" use-close-button>
+      There are some guided tasks to improve this article. Do you want to try them?
+      <template #footer>
+        <div class="ve-leave__actions" :class="{ 've-leave__actions--stacked': isMobile }">
+          <template v-if="isMobile">
+            <CdxButton action="progressive" @click="beforeYouGoViewSuggestions">View suggestions</CdxButton>
+            <CdxButton @click="beforeYouGoLeave">Leave the editor</CdxButton>
+          </template>
+          <template v-else>
+            <CdxButton @click="beforeYouGoLeave">Leave the editor</CdxButton>
+            <CdxButton action="progressive" @click="beforeYouGoViewSuggestions">View suggestions</CdxButton>
+          </template>
+        </div>
+      </template>
+    </CdxDialog>
 
     <CdxDialog v-model:open="leaveOpen" class="ve-leave" title="Are you sure?" use-close-button>
       Are you sure you want to leave editing mode without publishing first?
@@ -1825,6 +2025,116 @@ const titleFor = (f: Finding) =>
 .ve-leave__actions--stacked .cdx-button {
   width: 100%;
   max-width: none;
+}
+
+/* Discoverability: welcome dialog */
+.ve-welcome__text {
+  margin: 0;
+}
+
+.ve-welcome__image {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  margin: 16px auto 0;
+}
+
+/* Discoverability nudges */
+.ve-view-pill--bounce {
+  animation:
+    ve-pill-in 220ms ease,
+    ve-nudge-bounce 2s ease-in-out 220ms infinite;
+}
+
+.ve-card--bounce {
+  animation: ve-nudge-bounce 2s ease-in-out infinite;
+}
+
+@keyframes ve-nudge-bounce {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  }
+  20% {
+    transform: translateY(-7px);
+    animation-timing-function: cubic-bezier(0, 0, 0.4, 1);
+  }
+  38% {
+    transform: translateY(0);
+    animation-timing-function: ease-in;
+  }
+  50% {
+    transform: translateY(-3px);
+    animation-timing-function: ease-out;
+  }
+  62%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.ve-gutter__mark--pulse::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: rgba(51, 102, 204, 0.2);
+  transform: translate(-50%, -50%);
+  animation: ve-mark-pulse 1.5s ease-out infinite;
+  pointer-events: none;
+}
+
+.ve-gutter__mark--pulse .cdx-icon {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes ve-mark-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(51, 102, 204, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 17px rgba(51, 102, 204, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(51, 102, 204, 0);
+  }
+}
+
+.ve-gutter__mark--bounce .cdx-icon {
+  animation: ve-mark-bounce 3.2s ease-in-out infinite;
+}
+
+@keyframes ve-mark-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  12% {
+    transform: translateY(-6px);
+  }
+  24% {
+    transform: translateY(0);
+  }
+  36% {
+    transform: translateY(-3px);
+  }
+  48% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ve-view-pill--bounce,
+  .ve-card--bounce,
+  .ve-gutter__mark--pulse::after,
+  .ve-gutter__mark--bounce .cdx-icon {
+    animation: none;
+  }
 }
 
 .ve-editor :deep(.ve-section-hidden) {

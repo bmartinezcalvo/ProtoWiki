@@ -204,6 +204,7 @@ const resolvedHost = ref(props.host ?? defaultHost.value)
 const resolvedLang = ref(props.lang ?? 'en')
 
 const prefetchSuggestionCount = ref<number | null>(null)
+const prefetchSuggestionSections = ref(new Set<string>())
 const { editCount, editCountReady } = useEffectiveEditorEditCount()
 const route = useRoute()
 const { navigateToWikiPrototype, resolveWikiPrototypeUrl } = useWikiPrototypeNavigation()
@@ -254,19 +255,23 @@ if (showsSuggestionsIndicator.value) {
   provide(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, {
     show: computed(() => !editing.value && (prefetchSuggestionCount.value ?? 0) > 0),
     pulse: computed(() => suggestionSettings.firstTime),
+    sections: computed(() => prefetchSuggestionSections.value),
   })
 }
 
 async function refreshPrefetchSuggestionCount() {
   if (!countsSuggestions.value || !liveHtml.value || !vePage.value) {
     prefetchSuggestionCount.value = null
+    prefetchSuggestionSections.value = new Set()
     return
   }
-  prefetchSuggestionCount.value = await countArticleSuggestions(
+  const { count, sections } = await countArticleSuggestions(
     liveHtml.value,
     vePage.value,
     editCount.value,
   )
+  prefetchSuggestionCount.value = count
+  prefetchSuggestionSections.value = sections
 }
 
 async function fetchArticle(title: string, host: string, lang: string, signal: AbortSignal) {

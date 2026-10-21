@@ -10,6 +10,11 @@ import {
 import { globalSkin, globalTheme, PROTOWIKI_CHROME_SKIN, PROTOWIKI_CHROME_THEME } from '@/theme'
 import type { Skin, Theme } from '@/theme'
 import { collapseArticleTables } from './shared/collapseArticleTables'
+import {
+  EDIT_SUGGESTIONS_BADGE_HTML,
+  EDIT_SUGGESTIONS_PULSE_HTML,
+  PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR,
+} from './shared/editSuggestionsIndicator'
 import { mobileH2ChevronSvg, mobileH2EditIconSvg } from './shared/mobileH2CodexIcons'
 
 /**
@@ -232,6 +237,44 @@ function enhanceMobileLeadInfoboxOrder(root: HTMLElement) {
   })
 }
 
+/** Suggestions indicator on section edit pencils, where an `ArticleLive` opts in. */
+const suggestionsIndicator = inject(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, null)
+
+function decorateSectionEditIndicators(root: HTMLElement) {
+  if (!suggestionsIndicator) return
+  const show = suggestionsIndicator.show.value
+  const pulse = suggestionsIndicator.pulse.value
+  const sections = suggestionsIndicator.sections.value
+  root.querySelectorAll<HTMLButtonElement>('.protowiki-mobile-h2__edit').forEach((btn) => {
+    const id = btn.closest('section[data-mw-section-id]')?.getAttribute('data-mw-section-id')
+    btn.querySelector('.edit-suggestions-indicator__badge')?.remove()
+    btn.querySelector('.edit-suggestions-indicator__pulse')?.remove()
+    btn.classList.remove('protowiki-mobile-h2__edit--suggestions')
+    if (!show || !id || !sections.has(id)) return
+    let wrap = btn.querySelector('.edit-suggestions-indicator')
+    if (!wrap) {
+      wrap = document.createElement('span')
+      wrap.className = 'edit-suggestions-indicator'
+      wrap.append(...Array.from(btn.childNodes))
+      btn.append(wrap)
+    }
+    btn.classList.add('protowiki-mobile-h2__edit--suggestions')
+    if (pulse) wrap.insertAdjacentHTML('beforeend', EDIT_SUGGESTIONS_PULSE_HTML)
+    wrap.insertAdjacentHTML('beforeend', EDIT_SUGGESTIONS_BADGE_HTML)
+  })
+}
+
+if (suggestionsIndicator) {
+  watch(
+    [suggestionsIndicator.show, suggestionsIndicator.pulse, suggestionsIndicator.sections],
+    () => {
+      const root = mwParserOutputRef.value
+      if (root && effectiveSkin.value === 'mobile') decorateSectionEditIndicators(root)
+    },
+    { flush: 'post' },
+  )
+}
+
 async function applyMobileEnhancements() {
   await nextTick()
   if (effectiveSkin.value !== 'mobile') return
@@ -239,6 +282,7 @@ async function applyMobileEnhancements() {
   if (!root) return
   if (props.app) markEndMatterStart(root, APP_END_MATTER)
   enhanceMobileSectionHeadings(root, props.app)
+  decorateSectionEditIndicators(root)
   enhanceMobileLeadInfoboxOrder(root)
   // After the reorder — it matches `:scope > table.infobox`, which the wrapper
   // would put out of reach.
@@ -390,6 +434,15 @@ onUpdated(() => {
   color: var(--color-base);
   opacity: 0.7;
   cursor: pointer;
+}
+
+/* Suggestions indicator: the badge keeps full colour; the pencil stays muted. */
+.article[data-skin='mobile'] .mw-parser-output .protowiki-mobile-h2__edit--suggestions {
+  opacity: 1;
+}
+
+.article[data-skin='mobile'] .mw-parser-output .protowiki-mobile-h2__edit--suggestions > .edit-suggestions-indicator > svg:first-child {
+  opacity: 0.7;
 }
 
 .article[data-skin='mobile'] .mw-parser-output .protowiki-mobile-h2__edit:hover {
