@@ -20,6 +20,8 @@ interface ArticleLiveCommonProps {
   readRoute?: string
   /** When set, in-article wiki links navigate here with **`?title=`** instead of updating the current URL. */
   wikiLinkRoute?: string
+  /** Read mode: lightbulb badge on the Edit button when the article has suggestions (web only). */
+  suggestionsIndicator?: boolean
 }
 
 /** Fixed article: `article` set; the random-only props are forbidden. */
@@ -67,6 +69,7 @@ import { CdxMessage, CdxProgressBar } from '@wikimedia/codex'
 
 import ArticleRenderer from './ArticleRenderer.vue'
 import ArticleWrapper from './ArticleWrapper.vue'
+import { PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR } from './shared/editSuggestionsIndicator'
 import {
   attachSectionEditLinkHandler,
   decorateSectionEditLinks,
@@ -77,6 +80,7 @@ import { DEFAULT_RANDOM_SOURCE, selectRandomArticle } from './shared/selectRando
 import VisualEditorArticleShell from '@/components/visual-editor/VisualEditorArticleShell.vue'
 import VisualEditorPageLayout from '@/components/visual-editor/VisualEditorPageLayout.vue'
 import { countArticleSuggestions } from '@/components/visual-editor/countArticleSuggestions'
+import { suggestionSettings } from '@/components/visual-editor/settings'
 import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEditCount'
 import {
   PROTOWIKI_ARTICLE_WIKI_HOST,
@@ -132,6 +136,7 @@ interface Props {
   editRoute?: string
   readRoute?: string
   wikiLinkRoute?: string
+  suggestionsIndicator?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -152,6 +157,7 @@ const props = withDefaults(defineProps<Props>(), {
   editRoute: undefined,
   readRoute: undefined,
   wikiLinkRoute: undefined,
+  suggestionsIndicator: false,
 })
 
 const editing = defineModel<boolean>('editing', { default: false })
@@ -165,6 +171,11 @@ const emit = defineEmits<{
 }>()
 
 const effectiveEditable = computed(() => props.editable && !props.app)
+const showsSuggestionsIndicator = computed(() => props.suggestionsIndicator && !props.app)
+/** Count suggestions at load: the VE badge (editable) and the read-mode indicator. */
+const countsSuggestions = computed(
+  () => effectiveEditable.value || showsSuggestionsIndicator.value,
+)
 
 const inheritedSkin = inject(PROTOWIKI_CHROME_SKIN, null)
 const effectiveSkin = computed(
@@ -193,6 +204,7 @@ const resolvedHost = ref(props.host ?? defaultHost.value)
 const resolvedLang = ref(props.lang ?? 'en')
 
 const prefetchSuggestionCount = ref<number | null>(null)
+const prefetchSuggestionSections = ref(new Set<string>())
 const { editCount, editCountReady } = useEffectiveEditorEditCount()
 const route = useRoute()
 const { navigateToWikiPrototype, resolveWikiPrototypeUrl } = useWikiPrototypeNavigation()
@@ -239,16 +251,27 @@ function isAbortError(err: unknown): boolean {
   return false
 }
 
+if (showsSuggestionsIndicator.value) {
+  provide(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, {
+    show: computed(() => !editing.value && (prefetchSuggestionCount.value ?? 0) > 0),
+    pulse: computed(() => suggestionSettings.firstTime),
+    sections: computed(() => prefetchSuggestionSections.value),
+  })
+}
+
 async function refreshPrefetchSuggestionCount() {
-  if (!effectiveEditable.value || !liveHtml.value || !vePage.value) {
+  if (!countsSuggestions.value || !liveHtml.value || !vePage.value) {
     prefetchSuggestionCount.value = null
+    prefetchSuggestionSections.value = new Set()
     return
   }
-  prefetchSuggestionCount.value = await countArticleSuggestions(
+  const { count, sections } = await countArticleSuggestions(
     liveHtml.value,
     vePage.value,
     editCount.value,
   )
+  prefetchSuggestionCount.value = count
+  prefetchSuggestionSections.value = sections
 }
 
 async function fetchArticle(title: string, host: string, lang: string, signal: AbortSignal) {
@@ -268,7 +291,7 @@ async function fetchArticle(title: string, host: string, lang: string, signal: A
   liveHtml.value = body.html
   view.value = articleView
   if (articleView) resolvedTitle.value = articleView.title
-  if (effectiveEditable.value) void refreshPrefetchSuggestionCount()
+  if (countsSuggestions.value) void refreshPrefetchSuggestionCount()
   emit('titleResolved', title)
 }
 
@@ -375,7 +398,7 @@ watch(
 onBeforeUnmount(() => detachReadSectionEdit?.())
 
 watch([editCount, editCountReady], () => {
-  if (editCountReady.value && effectiveEditable.value) void refreshPrefetchSuggestionCount()
+  if (editCountReady.value && countsSuggestions.value) void refreshPrefetchSuggestionCount()
 })
 
 function navigateToReadRoute() {

@@ -23,10 +23,13 @@ import {
   cdxIconUnStar,
 } from '@wikimedia/codex-icons'
 
+import EditSuggestionsIndicator from './EditSuggestionsIndicator.vue'
+import VectorStickyHeader from './VectorStickyHeader.vue'
 import {
   DEFAULT_ARTICLE_LANGUAGE_LINKS,
   type ArticleLanguageLink,
 } from './shared/articleLanguageLinks'
+import { PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR } from './shared/editSuggestionsIndicator'
 import { useConfig } from '@/composables/useConfig'
 import { globalSkin, PROTOWIKI_CHROME_SKIN } from '@/theme'
 import type { Skin } from '@/theme'
@@ -76,6 +79,11 @@ const bareMainPage = computed(() => props.mainPage && effectiveSkin.value === 'm
 const greeting = computed(() =>
   bareMainPage.value && !isLoggedOut.value ? `Welcome, ${displayName.value}!` : undefined,
 )
+
+/** Suggestions indicator on Edit — only where an `ArticleLive` opts in. */
+const suggestionsIndicator = inject(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, null)
+const showSuggestionsIndicator = computed(() => suggestionsIndicator?.show.value ?? false)
+const pulseSuggestionsIndicator = computed(() => suggestionsIndicator?.pulse.value ?? false)
 
 const languagesButtonLabel = computed(() => {
   const n = props.languagesCount ?? 18
@@ -274,7 +282,12 @@ function onLanguagePick(row: ArticleLanguageLink) {
           aria-label="Edit"
           @click="$emit('editClick')"
         >
-          <CdxIcon :icon="cdxIconEdit" />
+          <EditSuggestionsIndicator
+            :show="showSuggestionsIndicator"
+            :pulse="pulseSuggestionsIndicator"
+          >
+            <CdxIcon :icon="cdxIconEdit" />
+          </EditSuggestionsIndicator>
         </button>
       </div>
       <template v-else>
@@ -302,7 +315,12 @@ function onLanguagePick(row: ArticleLanguageLink) {
           aria-label="Edit"
           @click="$emit('editClick')"
         >
-          <CdxIcon :icon="cdxIconEdit" />
+          <EditSuggestionsIndicator
+            :show="showSuggestionsIndicator"
+            :pulse="pulseSuggestionsIndicator"
+          >
+            <CdxIcon :icon="cdxIconEdit" />
+          </EditSuggestionsIndicator>
         </button>
         <button
           type="button"
@@ -370,6 +388,22 @@ function onLanguagePick(row: ArticleLanguageLink) {
       <strong>{{ title }}</strong> has been added to your
       <a href="#" @click.prevent>saved items</a>.
     </CdxToast>
+
+    <VectorStickyHeader
+      v-if="
+        suggestionsIndicator &&
+        effectiveSkin === 'desktop' &&
+        activeView === 'read' &&
+        !props.mainPage
+      "
+      :title="title"
+      :languages-label="languagesButtonLabel"
+      :show-indicator="showSuggestionsIndicator"
+      :pulse="pulseSuggestionsIndicator"
+      @edit-click="$emit('editClick')"
+      @history-click="$emit('historyClick')"
+      @watch-click="onWatchClick"
+    />
 
     <p v-if="effectiveSkin === 'desktop' && !props.mainPage" class="article-header__tagline">
       {{ DEFAULT_TAGLINE }}
