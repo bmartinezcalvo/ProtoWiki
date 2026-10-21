@@ -126,10 +126,16 @@ const dismissingId = ref<string | null>(null)
 /** Blocks whose tone check was declined — not re-flagged this session. */
 const dismissedToneBlocks = new WeakSet<Element>()
 
+const modeEnabled = computed(() => suggestionSettings.enabled)
+
+function initialSuggestionsOn(): boolean {
+  if (!suggestionSettings.enabled) return false
+  if (isMobile.value) return true
+  return suggestionSettings.firstTime ? false : suggestionSettings.rememberedToggle
+}
+
 /** Desktop: production remembers the toggle; first-timers start with it off. Mobile: always on. */
-const suggestionsOn = ref(
-  isMobile.value ? true : suggestionSettings.firstTime ? false : suggestionSettings.rememberedToggle,
-)
+const suggestionsOn = ref(initialSuggestionsOn())
 
 function isLive(f: Finding): boolean {
   if (f.element && !f.element.isConnected) return false
@@ -295,6 +301,13 @@ const pendingDisplayed = computed(() => displayed.value.filter((f) => status.get
 const badgeCount = computed(() => pendingSuggestions.value.length)
 
 async function runDetection() {
+  if (!modeEnabled.value) {
+    suggestions.value = []
+    detecting.value = false
+    emit('detected', 0)
+    scheduleLayout()
+    return
+  }
   detecting.value = true
   const root = surfaceRef.value!
   const edits = editCount.value
@@ -330,7 +343,29 @@ function showToast(text: string) {
   else show()
 }
 
+watch(
+  () => suggestionSettings.enabled,
+  (enabled) => {
+    if (!enabled) {
+      suggestionsOn.value = false
+      suggestions.value = []
+      checks.value = []
+      review.value = null
+      sheetOpen.value = false
+      focusedId.value = null
+      emit('sidebar', false)
+      emit('detected', 0)
+      scheduleLayout()
+      return
+    }
+    suggestionsOn.value = initialSuggestionsOn()
+    if (!editCountReady.value || loadingEditor.value || !surfaceRef.value) return
+    void runDetection()
+  },
+)
+
 watch(suggestionsOn, (on) => {
+  if (!modeEnabled.value) return
   if (!isMobile.value) {
     suggestionSettings.rememberedToggle = on
     suggestionSettings.firstTime = false
@@ -659,6 +694,7 @@ function onInput() {
 }
 
 async function runToneCheck(block: Element) {
+  if (!modeEnabled.value) return
   if (!block.isConnected || dismissedToneBlocks.has(block)) return
   if (checks.value.some((c) => c.type === 'tone' && c.data?.block === block && status.get(c.id) === 'pending')) return
   const finding = await toneCheckForBlock(block, pageInfo.value)
@@ -670,7 +706,7 @@ async function runToneCheck(block: Element) {
 
 /** addReference mid-edit only shows while suggestions are visible (`onBranchNodeChange`). */
 function runAddReferenceMidEdit() {
-  if (!suggestionsOn.value) return
+  if (!modeEnabled.value || !suggestionsOn.value) return
   const found = addReferenceChecks(surfaceRef.value!, addedParagraphs).filter(
     (f) => !checks.value.some((c) => c.type === 'addReference' && c.data?.paragraph === f.data?.paragraph),
   )
@@ -736,6 +772,7 @@ function onPaste(e: ClipboardEvent) {
     range.setStart(node, 0)
     range.setEnd(after.startContainer, after.startOffset)
   }
+  if (!modeEnabled.value) return
   const finding = pasteFinding(range, categories)
   if (!finding) return
   status.set(finding.id, 'pending')
@@ -1100,6 +1137,10 @@ watch(reviewBlocks, (blocks, old) => {
 
 async function publish() {
   if (publishing.value) return
+  if (!modeEnabled.value) {
+    finishPublish()
+    return
+  }
   publishing.value = true
   const root = surfaceRef.value!
   // onBeforeSave, without suggestions: addReference on new paragraphs, tone on edited ones.
@@ -1379,6 +1420,7 @@ const titleFor = (f: Finding) =>
   >
     <VeToolbar
       v-model:suggestions-on="suggestionsOn"
+      :show-suggestions-toggle="modeEnabled"
       :skin="skin"
       :count="badgeCount"
       :can-undo="hasChanges"

@@ -133,7 +133,7 @@ Set **`editable`** on web templates so **`ArticleHeader`**’s Edit tab opens th
 - **`editRoute?`** — when **`!editable`**, header Edit calls **`useWikiPrototypeNavigation()`** to push the path with the resolved title and preserved appearance query params.
 - **`readRoute?`** — when **`editable`**, the route is **editor-only** (no inline read surface); Read tab, VE exit, and publish navigate to that path.
 - **`v-model:editing`** and **`v-model:suggestion-count`** support VE-template chrome (footer/header while editing, settings panel counts).
-- **Suggestion mode settings UI** (`SuggestionSettingsPanel` in **`src/components/settings/`**) opens from the **gallery home** toolbar (lightbulb) and the Visual Editor template **main menu**; other **`editable`** templates still run suggestions with the same persisted store in **`src/components/visual-editor/settings.ts`**.
+- **Suggestion mode settings UI** (`SuggestionSettingsPanel` in **`src/components/settings/`**) opens from the **gallery home** toolbar (lightbulb) and the Visual Editor template **main menu**; a master **Suggestion mode** toggle at the top of the panel turns off detection, Edit Check, and the VE toolbar lightbulb (`enabled` in **`src/components/visual-editor/settings.ts`**). Other **`editable`** templates share the same persisted store.
 
 **Starters:** **`template-main-page/`** and **`template-article/`** — **`ChromeWrapper`** + read **`ArticleLive`**; **`template-visual-editor/`** adds **`editable`**, **`start-in-edit-mode`**, **`read-route`**, and a custom **`#menu`** slot.
 

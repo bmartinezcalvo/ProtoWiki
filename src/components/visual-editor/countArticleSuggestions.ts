@@ -14,6 +14,7 @@ export async function countArticleSuggestions(
   page: VisualEditorPage,
   editCount: number,
 ): Promise<number> {
+  if (!suggestionSettings.enabled) return 0
   const root = parseArticleHtml(html).querySelector('.mw-parser-output')
   if (!root) return 0
   const options = {

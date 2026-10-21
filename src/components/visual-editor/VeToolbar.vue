@@ -37,18 +37,23 @@ import {
 
 import { STR } from './engine/strings'
 
-const props = defineProps<{
-  skin: 'desktop' | 'mobile'
-  suggestionsOn: boolean
-  /** Suggestions available (badge). */
-  count: number
+const props = withDefaults(
+  defineProps<{
+    skin: 'desktop' | 'mobile'
+    suggestionsOn: boolean
+    /** Suggestions available (badge). */
+    count: number
+    /** When false, hide the suggestion-mode lightbulb (master setting off). */
+    showSuggestionsToggle?: boolean
   canUndo: boolean
   canRedo: boolean
   canPublish: boolean
   review: boolean
-  /** Editor still loading: progress bar (Vector) / "Loading editor…" (Minerva). */
-  loading?: boolean
-}>()
+    /** Editor still loading: progress bar (Vector) / "Loading editor…" (Minerva). */
+    loading?: boolean
+  }>(),
+  { showSuggestionsToggle: true },
+)
 
 const emit = defineEmits<{
   'update:suggestionsOn': [value: boolean]
@@ -259,6 +264,7 @@ onBeforeUnmount(() => {
         <CdxIcon :icon="cdxIconHelp" />
       </button>
       <CdxToggleButton
+        v-if="showSuggestionsToggle"
         v-model="toggleModel"
         quiet
         class="ve-toolbar__suggestions"
@@ -369,6 +375,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <CdxToggleButton
+        v-if="showSuggestionsToggle"
         v-model="toggleModel"
         quiet
         class="ve-toolbar__suggestions ve-toolbar__btn--fill"

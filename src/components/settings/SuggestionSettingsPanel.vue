@@ -28,6 +28,8 @@ const props = defineProps<{
   detectedCount?: number | null
 }>()
 
+const subControlsDisabled = computed(() => !suggestionSettings.enabled)
+
 const limitMode = computed({
   get: () => (suggestionSettings.limit === null ? 'all' : 'custom'),
   set: (mode: string) => {
@@ -61,57 +63,82 @@ const shortfall = computed(
     <div class="settings-panel__intro">
       <h2 class="settings-panel__title">Suggestion mode settings</h2>
       <p class="settings-panel__description">
-        Configure how suggestions appear within the Visual Editor.
+        Configure the suggestions that appear within the Visual Editor.
       </p>
     </div>
 
-    <CdxField is-fieldset>
-      <template #label>Number of suggestions</template>
-      <CdxRadio v-model="limitMode" name="suggestion-limit" input-value="all">
-        All suggestions found (as in production)
-      </CdxRadio>
-      <CdxRadio v-model="limitMode" name="suggestion-limit" input-value="custom">
-        Custom
-        <template v-if="limitMode === 'custom'" #custom-input>
-          <CdxTextInput
-            v-model="limitText"
-            input-type="number"
-            :min="MIN_LIMIT"
-            :max="MAX_LIMIT"
-            aria-label="Number of suggestions"
-          />
-        </template>
-      </CdxRadio>
-      <template v-if="shortfall" #help-text>
-        This article only has {{ detectedCount }} suggestions.
-      </template>
-    </CdxField>
-
-    <CdxField is-fieldset>
-      <template #label>Suggestion types</template>
-      <CdxCheckbox :model-value="allTypesOn" @update:model-value="setAllTypes"
-        >All types</CdxCheckbox
-      >
-      <div class="suggestion-settings-panel__types">
-        <CdxCheckbox
-          v-for="type in SUGGESTION_TYPES"
-          :key="type.id"
-          v-model="suggestionSettings.types[type.id]"
-        >
-          {{ type.label }}
-        </CdxCheckbox>
-      </div>
-    </CdxField>
-
     <CdxField>
-      <CdxToggleSwitch v-model="suggestionSettings.firstTime"
-        >First time using Suggestion Mode</CdxToggleSwitch
-      >
-      <template #help-text>
-        On desktop, suggestions start turned off until the editor turns them on. On mobile they're
-        always on.
-      </template>
+      <CdxToggleSwitch v-model="suggestionSettings.enabled">Suggestion mode</CdxToggleSwitch>
     </CdxField>
+
+    <div
+      class="suggestion-settings-panel__body"
+      :class="{ 'suggestion-settings-panel__body--disabled': subControlsDisabled }"
+      :inert="subControlsDisabled"
+    >
+      <CdxField is-fieldset>
+        <template #label>Number of suggestions</template>
+        <CdxRadio
+          v-model="limitMode"
+          name="suggestion-limit"
+          input-value="all"
+          :disabled="subControlsDisabled"
+        >
+          All suggestions found (as in production)
+        </CdxRadio>
+        <CdxRadio
+          v-model="limitMode"
+          name="suggestion-limit"
+          input-value="custom"
+          :disabled="subControlsDisabled"
+        >
+          Custom
+          <template v-if="limitMode === 'custom'" #custom-input>
+            <CdxTextInput
+              v-model="limitText"
+              input-type="number"
+              :min="MIN_LIMIT"
+              :max="MAX_LIMIT"
+              aria-label="Number of suggestions"
+              :disabled="subControlsDisabled"
+            />
+          </template>
+        </CdxRadio>
+        <template v-if="shortfall" #help-text>
+          This article only has {{ detectedCount }} suggestions.
+        </template>
+      </CdxField>
+
+      <CdxField is-fieldset>
+        <template #label>Suggestion types</template>
+        <CdxCheckbox
+          :model-value="allTypesOn"
+          :disabled="subControlsDisabled"
+          @update:model-value="setAllTypes"
+          >All types</CdxCheckbox
+        >
+        <div class="suggestion-settings-panel__types">
+          <CdxCheckbox
+            v-for="type in SUGGESTION_TYPES"
+            :key="type.id"
+            v-model="suggestionSettings.types[type.id]"
+            :disabled="subControlsDisabled"
+          >
+            {{ type.label }}
+          </CdxCheckbox>
+        </div>
+      </CdxField>
+
+      <CdxField>
+        <CdxToggleSwitch v-model="suggestionSettings.firstTime" :disabled="subControlsDisabled"
+          >First time using Suggestion Mode</CdxToggleSwitch
+        >
+        <template #help-text>
+          On desktop, suggestions start turned off until the editor turns them on. On mobile they're
+          always on.
+        </template>
+      </CdxField>
+    </div>
 
     <div>
       <CdxButton @click="resetSuggestionSettings">Reset settings</CdxButton>
@@ -124,6 +151,16 @@ const shortfall = computed(
 :global(.cdx-popover--bottom-sheet) .suggestion-settings-panel {
   max-width: none;
   width: 100%;
+}
+
+.suggestion-settings-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-100);
+}
+
+.suggestion-settings-panel__body--disabled {
+  opacity: 0.6;
 }
 
 .suggestion-settings-panel__types {

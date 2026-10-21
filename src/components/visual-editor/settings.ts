@@ -11,6 +11,8 @@ import { SUGGESTION_TYPES, type SuggestionTypeId } from './engine/checks'
  * per browser (a convenience only — the prototype works without storage).
  */
 export interface SuggestionSettings {
+  /** Master switch: suggestion detection, Edit Check, and the toolbar lightbulb in the VE prototype. */
+  enabled: boolean
   /** `null` = every detected suggestion, as production does (99+ cap in the badge only). */
   limit: number | null
   types: Record<SuggestionTypeId, boolean>
@@ -28,6 +30,7 @@ const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
 
 function defaults(): SuggestionSettings {
   return {
+    enabled: true,
     limit: null,
     types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, true])) as Record<
       SuggestionTypeId,
@@ -91,6 +94,7 @@ export const MAX_LIMIT = 99
  * suggestions spread through the article (evenly sampled, document order kept).
  */
 export function applySuggestionSettings<T extends { type: string }>(items: T[]): T[] {
+  if (!suggestionSettings.enabled) return []
   const enabled = items.filter(
     (item) => suggestionSettings.types[item.type as SuggestionTypeId] !== false,
   )
