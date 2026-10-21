@@ -9,7 +9,12 @@ definePage({
 import { useRoute, useRouter } from 'vue-router'
 
 import { CdxButton, CdxCard, CdxIcon, CdxTab, CdxTabs } from '@wikimedia/codex'
-import { cdxIconAppearance, cdxIconLightbulb, cdxIconLogoCodex, cdxIconUserAvatar } from '@wikimedia/codex-icons'
+import {
+  cdxIconAppearance,
+  cdxIconLightbulb,
+  cdxIconLogoCodex,
+  cdxIconUserAvatar,
+} from '@wikimedia/codex-icons'
 
 import CodexPatchMessage from '@/components/CodexPatchMessage.vue'
 import PlainWrapper from '@/components/PlainWrapper.vue'
@@ -65,7 +70,7 @@ const docsUrl = `${PROTOWIKI_API_PROJECT_URL}#prototyping-system`
             <CdxButton
               weight="quiet"
               :icon-only="true"
-              aria-label="Suggestion Mode settings"
+              aria-label="Suggestion mode settings"
               :aria-expanded="open"
               @click="toggle"
             >

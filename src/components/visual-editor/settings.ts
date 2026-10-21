@@ -6,7 +6,7 @@ import { isConfigMockEditorEditCount } from '@/config'
 import { SUGGESTION_TYPES, type SuggestionTypeId } from './engine/checks'
 
 /**
- * Suggestion Mode settings, edited from the gallery toolbar or VE main menu.
+ * Suggestion mode settings, edited from the gallery toolbar or VE main menu.
  * Persisted
  * per browser (a convenience only — the prototype works without storage).
  */
@@ -17,7 +17,7 @@ export interface SuggestionSettings {
   /**
    * First time in Suggestion Mode (`firstTime` true): production starts the desktop
    * toggle off until the editor turns it on once. Exposed as “First time using
-   * Suggestion Mode” in Suggestion Mode settings. Mobile always starts with suggestions visible.
+   * Suggestion Mode” in Suggestion mode settings. Mobile always starts with suggestions visible.
    */
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
@@ -29,7 +29,10 @@ const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
 function defaults(): SuggestionSettings {
   return {
     limit: null,
-    types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, true])) as Record<SuggestionTypeId, boolean>,
+    types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, true])) as Record<
+      SuggestionTypeId,
+      boolean
+    >,
     firstTime: false,
     rememberedToggle: true,
   }
@@ -88,7 +91,9 @@ export const MAX_LIMIT = 99
  * suggestions spread through the article (evenly sampled, document order kept).
  */
 export function applySuggestionSettings<T extends { type: string }>(items: T[]): T[] {
-  const enabled = items.filter((item) => suggestionSettings.types[item.type as SuggestionTypeId] !== false)
+  const enabled = items.filter(
+    (item) => suggestionSettings.types[item.type as SuggestionTypeId] !== false,
+  )
   const limit = suggestionSettings.limit
   if (limit === null) return enabled
   if (limit === 0) return []

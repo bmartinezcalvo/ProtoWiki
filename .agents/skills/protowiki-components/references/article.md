@@ -38,29 +38,29 @@ Other wikis use different main-page titles; pass the correct **`article`** / **`
 
 ## `ArticleWrapper`
 
-| Concern      | Notes                                                                                                                                          |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chrome props | **`title?`**, **`header`**, **`languagesCount?`**, **`lang`**, **`dir`**, **`skin`**, **`theme`**, …                                            |
+| Concern      | Notes                                                                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chrome props | **`title?`**, **`header`**, **`languagesCount?`**, **`lang`**, **`dir`**, **`skin`**, **`theme`**, …                                          |
 | App props    | **`app?`** (lead block instead of **`ArticleHeader`**, skin pinned to **`mobile`**), **`description?`**, **`leadImageUrl?`** — **`app`** only |
-| Slots        | **default** (**main reader column** — **`ArticleRenderer`** or bespoke markup)                                                                  |
+| Slots        | **default** (**main reader column** — **`ArticleRenderer`** or bespoke markup)                                                                |
 
 In **`app`** mode the wrapper drops its own inline padding — the app chrome already pads the screen edges — and the lead image bleeds back out through that gutter.
 
 ## `ArticleRenderer`
 
-| Concern | Notes                                                                                                                                                                                   |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Props   | **`lang`/`dir`/`skin`/`theme`** (no parser string prop — use **`#default`**), **`app?`**                                                                                |
+| Concern | Notes                                                                                                                                                           |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Props   | **`lang`/`dir`/`skin`/`theme`** (no parser string prop — use **`#default`**), **`app?`**                                                                        |
 | Slots   | **`#default`** — contents appear inside **`.mw-parser-output`**; omit **`ArticleRenderer`** when there is nothing to render (**`ArticleLive`** gates mounting). |
 
 **`app`** (default **`false`**) switches the mobile reading affordances from web to in-app, and **pins the skin to `mobile`** (app chrome provides no **`data-skin`** to inherit). The article surfaces forward their own **`app`** prop, so you only pass it here when composing **`ArticleRenderer`** by hand.
 
-| Behaviour            | **`app: false`** (web mobile)                     | **`app: true`** (in-app)                                                                                                                                                                                           |
-| -------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **`section > h2`**   | every section collapsible, all starting **open**  | only **References** / **External links** collapse, starting **closed**; every other heading is static (same look, no chevron, no toggle)                                                                            |
-| Heading rule         | rule under each **`h2`**                          | no rule; the boundary is drawn once as a **top border** on the first end-matter **`section`** (**`.protowiki-mobile-end-matter-start`**, absent when neither section exists)                                          |
-| Tables               | styled in place                                   | folded into **Quick facts** / **More information** widgets — see below                                                                                                                                              |
-| Navboxes             | rendered                                          | hidden (**`.navbox`**, **`.vertical-navbox`** — authority control is a navbox too), matching the apps' article HTML; hatnotes and sister-site boxes stay                                                             |
+| Behaviour          | **`app: false`** (web mobile)                    | **`app: true`** (in-app)                                                                                                                                                     |
+| ------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`section > h2`** | every section collapsible, all starting **open** | only **References** / **External links** collapse, starting **closed**; every other heading is static (same look, no chevron, no toggle)                                     |
+| Heading rule       | rule under each **`h2`**                         | no rule; the boundary is drawn once as a **top border** on the first end-matter **`section`** (**`.protowiki-mobile-end-matter-start`**, absent when neither section exists) |
+| Tables             | styled in place                                  | folded into **Quick facts** / **More information** widgets — see below                                                                                                       |
+| Navboxes           | rendered                                         | hidden (**`.navbox`**, **`.vertical-navbox`** — authority control is a navbox too), matching the apps' article HTML; hatnotes and sister-site boxes stay                     |
 
 App-mode CSS keys off **`.article-content--app`** on the renderer root, and **`.article--app`** on the wrapper root.
 
@@ -133,7 +133,7 @@ Set **`editable`** on web templates so **`ArticleHeader`**’s Edit tab opens th
 - **`editRoute?`** — when **`!editable`**, header Edit calls **`useWikiPrototypeNavigation()`** to push the path with the resolved title and preserved appearance query params.
 - **`readRoute?`** — when **`editable`**, the route is **editor-only** (no inline read surface); Read tab, VE exit, and publish navigate to that path.
 - **`v-model:editing`** and **`v-model:suggestion-count`** support VE-template chrome (footer/header while editing, settings panel counts).
-- **Suggestion Mode settings UI** (`SuggestionSettingsPanel` in **`src/components/settings/`**) opens from the **gallery home** toolbar (lightbulb) and the Visual Editor template **main menu**; other **`editable`** templates still run suggestions with the same persisted store in **`src/components/visual-editor/settings.ts`**.
+- **Suggestion mode settings UI** (`SuggestionSettingsPanel` in **`src/components/settings/`**) opens from the **gallery home** toolbar (lightbulb) and the Visual Editor template **main menu**; other **`editable`** templates still run suggestions with the same persisted store in **`src/components/visual-editor/settings.ts`**.
 
 **Starters:** **`template-main-page/`** and **`template-article/`** — **`ChromeWrapper`** + read **`ArticleLive`**; **`template-visual-editor/`** adds **`editable`**, **`start-in-edit-mode`**, **`read-route`**, and a custom **`#menu`** slot.
 
@@ -177,20 +177,20 @@ Emits **`parserReady`** with the rendered article root once the body is in the D
 
 ### Slots
 
-| Slot    | Notes                                                                                                                                                                         |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slot    | Notes                                                                                                                               |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | default | Forwarded inside **`ArticleRenderer`** when passed — replaces the **`v-html`** wrapper **`ArticleLive`** emits for **`page/html`**. |
 
 ## In-app articles (`app`)
 
 **`app`** turns any article surface into an in-app reading screen for **`AppChromeWrapper`** prototypes. Same one-document path as the web article components — app chrome around it instead of web chrome, no separate component.
 
-| Concern | Notes                                                                                                                                      |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Fetch   | REST **`page/html`** via **`fetchArticleBody()`** — the same fetch the web path uses (**`ArticleLive`** only)                                                        |
+| Concern | Notes                                                                                                                                                                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fetch   | REST **`page/html`** via **`fetchArticleBody()`** — the same fetch the web path uses (**`ArticleLive`** only)                                                                                                                                                    |
 | Chrome  | **`ArticleWrapper`** lead block: lead image, title, description. **`ArticleLive`** fills those from **`fetchArticleView()`** (Action API **`query`** + **`pageimages\|description`**); **`ArticleCustom`** takes **`description`** / **`leadImageUrl`** as props |
-| Render  | **`ArticleRenderer`** with **`app`**, which pins **`skin="mobile"`** inside **`.article[data-skin="mobile"]`**                              |
-| Styling | Vendored Minerva snapshot + **`mobile-wiki-overrides.css`**, exactly as the web mobile skin                                                 |
+| Render  | **`ArticleRenderer`** with **`app`**, which pins **`skin="mobile"`** inside **`.article[data-skin="mobile"]`**                                                                                                                                                   |
+| Styling | Vendored Minerva snapshot + **`mobile-wiki-overrides.css`**, exactly as the web mobile skin                                                                                                                                                                      |
 
 The in-app reading behaviour itself lives in **`ArticleRenderer`**: static **`h2`** headings with an edit button, collapsed **References** / **External links** end matter behind a single divider, and **Quick facts** / **More information** table widgets (see **`ArticleRenderer`** above). **`ArticleWrapper`** adds the app's own lead block on top — lead image, title, description, then the short 60px rule closing it off.
 

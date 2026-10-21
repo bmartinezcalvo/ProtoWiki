@@ -1,10 +1,17 @@
 <script setup lang="ts">
 /**
- * "Suggestion Mode settings" — gallery toolbar or VE main menu, same style as
+ * "Suggestion mode settings" — gallery toolbar or VE main menu, same style as
  * ProtoWiki's other mock settings panels.
  */
 import { computed } from 'vue'
-import { CdxButton, CdxCheckbox, CdxField, CdxRadio, CdxTextInput, CdxToggleSwitch } from '@wikimedia/codex'
+import {
+  CdxButton,
+  CdxCheckbox,
+  CdxField,
+  CdxRadio,
+  CdxTextInput,
+  CdxToggleSwitch,
+} from '@wikimedia/codex'
 
 import { SUGGESTION_TYPES } from '@/components/visual-editor/engine/checks'
 import {
@@ -52,7 +59,7 @@ const shortfall = computed(
 <template>
   <div class="settings-panel suggestion-settings-panel">
     <div class="settings-panel__intro">
-      <h2 class="settings-panel__title">Suggestion Mode settings</h2>
+      <h2 class="settings-panel__title">Suggestion mode settings</h2>
       <p class="settings-panel__description">
         Configure how suggestions appear within the Visual Editor.
       </p>
@@ -66,7 +73,13 @@ const shortfall = computed(
       <CdxRadio v-model="limitMode" name="suggestion-limit" input-value="custom">
         Custom
         <template v-if="limitMode === 'custom'" #custom-input>
-          <CdxTextInput v-model="limitText" input-type="number" :min="MIN_LIMIT" :max="MAX_LIMIT" aria-label="Number of suggestions" />
+          <CdxTextInput
+            v-model="limitText"
+            input-type="number"
+            :min="MIN_LIMIT"
+            :max="MAX_LIMIT"
+            aria-label="Number of suggestions"
+          />
         </template>
       </CdxRadio>
       <template v-if="shortfall" #help-text>
@@ -76,18 +89,27 @@ const shortfall = computed(
 
     <CdxField is-fieldset>
       <template #label>Suggestion types</template>
-      <CdxCheckbox :model-value="allTypesOn" @update:model-value="setAllTypes">All types</CdxCheckbox>
+      <CdxCheckbox :model-value="allTypesOn" @update:model-value="setAllTypes"
+        >All types</CdxCheckbox
+      >
       <div class="suggestion-settings-panel__types">
-        <CdxCheckbox v-for="type in SUGGESTION_TYPES" :key="type.id" v-model="suggestionSettings.types[type.id]">
+        <CdxCheckbox
+          v-for="type in SUGGESTION_TYPES"
+          :key="type.id"
+          v-model="suggestionSettings.types[type.id]"
+        >
           {{ type.label }}
         </CdxCheckbox>
       </div>
     </CdxField>
 
     <CdxField>
-      <CdxToggleSwitch v-model="suggestionSettings.firstTime">First time using Suggestion Mode</CdxToggleSwitch>
+      <CdxToggleSwitch v-model="suggestionSettings.firstTime"
+        >First time using Suggestion Mode</CdxToggleSwitch
+      >
       <template #help-text>
-        On desktop, suggestions start turned off until the editor turns them on. On mobile they're always on.
+        On desktop, suggestions start turned off until the editor turns them on. On mobile they're
+        always on.
       </template>
     </CdxField>
 
@@ -107,5 +129,4 @@ const shortfall = computed(
 .suggestion-settings-panel__types {
   padding-inline-start: var(--spacing-150, 24px);
 }
-
 </style>
