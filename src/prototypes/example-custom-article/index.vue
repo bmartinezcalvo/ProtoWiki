@@ -3,12 +3,11 @@ import { cdxIconArticle } from '@wikimedia/codex-icons'
 
 definePage({
   meta: {
-    title: 'Article (custom)',
-    description:
-      'Template for an article page where the article is written out within the template itself. Useful for when you want to directly change some part of the article.',
-    category: 'template',
+    title: 'Custom article',
+    description: 'An example of how to prototype a static, custom-written article.',
+    category: 'example',
     platform: 'web',
-    order: 3,
+    order: 2,
     icon: cdxIconArticle,
   },
 })
@@ -23,7 +22,7 @@ const leadPhotoUrl = `${import.meta.env.BASE_URL}images/wet-leg-o2-infobox.jpg`
 
 <template>
   <ChromeWrapper>
-    <ArticleCustom>
+    <ArticleCustom editable title="Wet Leg">
       <section>
         <p>
           <em>For their eponymous album, see</em>&nbsp;<a
@@ -155,10 +154,16 @@ const leadPhotoUrl = `${import.meta.env.BASE_URL}images/wet-leg-o2-infobox.jpg`
           Initially a duo, Teasdale and Chambers debuted with the single &ldquo;Chaise
           Longue&rdquo;, in 2021. Their self-titled debut album debuted in 2022 at number one on the
           UK Albums Chart and Australia&rsquo;s ARIA Albums Chart. The album was shortlisted for the
-          2022 Mercury Prize. At the 65th Annual Grammy Awards, Wet Leg won Best Alternative Music
+          2022 Mercury Prize.           At the 65th Annual Grammy Awards, Wet Leg won Best Alternative Music
           Album for their debut and Best Alternative Music Performance for &ldquo;Chaise
-          Longue&rdquo;, and were nominated for Best New Artist. They also won Best New Artist and
-          Best British Group at the 2023 Brit Awards.
+          Longue&rdquo;, and were nominated for Best New Artist.<sup
+            id="cite_ref-1"
+            class="reference"
+            ><a href="#cite_note-1"
+              ><span class="mw-reflink-text">[1]</span></a
+            ></sup
+          >
+          They also won Best New Artist and Best British Group at the 2023 Brit Awards.
         </p>
 
         <p>
@@ -210,7 +215,14 @@ const leadPhotoUrl = `${import.meta.env.BASE_URL}images/wet-leg-o2-infobox.jpg`
 
           <p>
             The band's debut single, &ldquo;Chaise Longue&rdquo;, was released on 15 June 2021, and
-            gained media notice for earning millions of streams and video views. Their second
+            gained media notice for earning millions of streams and video views.<sup
+              id="cite_ref-2"
+              class="reference"
+              ><a href="#cite_note-2"
+                ><span class="mw-reflink-text">[2]</span></a
+              ></sup
+            >
+            Their second
             single, &ldquo;Wet Dream&rdquo;, was released on 28 September 2021.
             <i>Variety</i> noted, &ldquo;It's rare that a new group releases two songs and they're
             both great&rdquo;. They appeared on <i>Later&hellip; with Jools Holland</i> on BBC2, on
@@ -282,12 +294,49 @@ const leadPhotoUrl = `${import.meta.env.BASE_URL}images/wet-leg-o2-infobox.jpg`
           </p>
         </section>
 
-        <p>
-          <RouterLink to="/">Back to gallery</RouterLink> · Content adapted from the English
-          Wikipedia article
-          <a href="https://en.wikipedia.org/wiki/Wet_Leg">&ldquo;Wet Leg&rdquo;</a>
-          (<abbr title="Creative Commons Attribution Share-Alike licence">CC BY-SA</abbr>).
-        </p>
+        <section>
+          <h2>References</h2>
+          <div class="mw-references-wrap">
+            <ol class="references">
+              <li id="cite_note-1">
+                <span class="mw-cite-backlink"
+                  ><a href="#cite_ref-1" aria-label="Jump up">^</a></span
+                >
+                <span class="reference-text">
+                  &ldquo;65th Annual GRAMMY Awards&rdquo;.
+                  <a
+                    class="external text"
+                    href="https://www.grammy.com/awards/65th-annual-grammy-awards"
+                    rel="noopener"
+                    >GRAMMY.com</a
+                  >.
+                </span>
+              </li>
+              <li id="cite_note-2">
+                <span class="mw-cite-backlink"
+                  ><a href="#cite_ref-2" aria-label="Jump up">^</a></span
+                >
+                <span class="reference-text">
+                  Sam Moore (15 June 2021). &ldquo;Wet Leg share debut single
+                  &lsquo;Chaise Longue&rsquo;&rdquo;.
+                  <a
+                    class="external text"
+                    href="https://www.nme.com/news/music/wet-leg-share-debut-single-chaise-longue-2968764"
+                    rel="noopener"
+                    ><i>NME</i></a
+                  >.
+                </span>
+              </li>
+            </ol>
+            <p>
+              Prose adapted from the English Wikipedia article
+              <a href="https://en.wikipedia.org/wiki/Wet_Leg">&ldquo;Wet Leg&rdquo;</a>
+              (<abbr title="Creative Commons Attribution Share-Alike licence">CC BY-SA</abbr>).
+            </p>
+          </div>
+        </section>
+
+        <p><RouterLink to="/">Back to gallery</RouterLink></p>
       </section>
     </ArticleCustom>
   </ChromeWrapper>

@@ -161,5 +161,16 @@ export async function fetchArticleBody(
     })
   }
 
-  return bodyPromise
+  try {
+    return await bodyPromise
+  } catch (err) {
+    const aborted =
+      err instanceof DOMException
+        ? err.name === 'AbortError'
+        : err instanceof Error && /abort/i.test(err.message)
+    if (aborted && options.signal && !options.signal.aborted) {
+      return fetchArticleBody(title, host, options)
+    }
+    throw err
+  }
 }

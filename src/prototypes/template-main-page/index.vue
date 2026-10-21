@@ -7,19 +7,61 @@ definePage({
     description: "Template for prototyping English Wikipedia's Main Page",
     category: 'template',
     platform: 'web',
-    order: 2.5,
+    order: 8,
     icon: cdxIconHome,
   },
 })
 
+import { nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
 import ArticleLive from '@/components/article/ArticleLive.vue'
 import ChromeWrapper from '@/components/chrome/ChromeWrapper.vue'
+import { preservedQueryFromLocationQuery } from '@/appearance/url-query'
+import { provideChromeSearchHandlers } from '@/composables/useChromeSearch'
+import { parseWikiPageTitleQuery } from '@/composables/useWikiPageTitleQuery'
+import {
+  MAIN_PAGE_TEMPLATE_PATH,
+  WIKIPEDIA_MAIN_PAGE_TITLE,
+} from '@/composables/useWordmarkMainPageLink'
+import { useWikiPrototypeNavigation } from '@/composables/useWikiPrototypeNavigation'
+
+const ARTICLE_TEMPLATE_PATH = '/template-article'
+
+const route = useRoute()
+const router = useRouter()
+const { navigateToWikiPrototype } = useWikiPrototypeNavigation()
+
+function stripTitleQuery() {
+  if (parseWikiPageTitleQuery(route.query) === undefined) return
+  void nextTick(() => {
+    void router.replace({
+      path: MAIN_PAGE_TEMPLATE_PATH,
+      query: preservedQueryFromLocationQuery(route.query),
+    })
+  })
+}
+
+stripTitleQuery()
+watch(() => route.query.title, stripTitleQuery)
+
+provideChromeSearchHandlers({
+  onSelect(title) {
+    navigateToWikiPrototype(ARTICLE_TEMPLATE_PATH, title)
+  },
+  onSubmit({ title }) {
+    if (title) navigateToWikiPrototype(ARTICLE_TEMPLATE_PATH, title)
+  },
+})
 </script>
 
 <template>
   <ChromeWrapper>
     <!-- ArticleWrapper detects title "Main Page" and applies production Main Page header chrome. -->
-    <ArticleLive article="Main Page" />
+    <ArticleLive
+      :article="WIKIPEDIA_MAIN_PAGE_TITLE"
+      wiki-link-route="/template-article"
+    />
 
     <!-- Other wikis use different main-page titles; set lang/host and article accordingly. -->
     <!-- <ArticleLive lang="fr" article="Wikipédia:Accueil principal" /> -->

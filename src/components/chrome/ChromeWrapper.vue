@@ -44,6 +44,8 @@ interface Props {
   mobileWordmarkSrc?: string
   /** Forwarded to **`ChromeHeader`** (desktop tools only). */
   navTools?: ChromeNavTool[]
+  /** Forwarded to **`ChromeHeader`**. */
+  prototypingSettings?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -58,6 +60,7 @@ const props = withDefaults(defineProps<Props>(), {
   taglineSrc: undefined,
   mobileWordmarkSrc: undefined,
   navTools: undefined,
+  prototypingSettings: true,
 })
 
 const { displayName } = useConfig()
@@ -87,9 +90,13 @@ provide(PROTOWIKI_CHROME_THEME, effectiveTheme)
         :tagline-src="props.taglineSrc"
         :mobile-wordmark-src="props.mobileWordmarkSrc"
         :nav-tools="props.navTools"
+        :prototyping-settings="props.prototypingSettings"
       >
         <template v-if="$slots.menu" #menu>
           <slot name="menu" />
+        </template>
+        <template v-if="$slots['user-menu']" #user-menu>
+          <slot name="user-menu" />
         </template>
       </ChromeHeader>
     </slot>

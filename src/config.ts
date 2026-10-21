@@ -5,6 +5,101 @@ export type ConfigAppPlatform = 'auto' | AppPlatform
 export type ConfigWebSkin = 'auto' | 'desktop' | 'mobile'
 export type ConfigUser = 'logged-out' | 'new' | 'experienced' | 'real'
 
+/** Mock editor total edit count (Visual Editor / Suggestion Mode prototypes). */
+export type ConfigMockEditorEditCount = 'none' | 'new' | 'intermediate' | 'experienced'
+
+export const CONFIG_MOCK_EDITOR_EDIT_COUNT_ITEMS: {
+  value: ConfigMockEditorEditCount
+  label: string
+}[] = [
+  { value: 'none', label: '0 edits' },
+  { value: 'new', label: '10 edits or fewer' },
+  { value: 'intermediate', label: '11–999 edits' },
+  { value: 'experienced', label: '1,000 edits or more' },
+]
+
+/** Edits dropdown for mock presets (new / experienced). */
+export const CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS = CONFIG_MOCK_EDITOR_EDIT_COUNT_ITEMS
+
+export interface MockEditorEditCountByUser {
+  new: ConfigMockEditorEditCount
+  experienced: ConfigMockEditorEditCount
+}
+
+export const DEFAULT_MOCK_EDITOR_EDIT_COUNT_BY_USER: MockEditorEditCountByUser = {
+  new: 'none',
+  experienced: 'experienced',
+}
+
+/** Default mock Edits value when a preset is reset. */
+export function defaultMockEditorEditCountForUser(user: ConfigUser): ConfigMockEditorEditCount | null {
+  if (user === 'new') return DEFAULT_MOCK_EDITOR_EDIT_COUNT_BY_USER.new
+  if (user === 'experienced') return DEFAULT_MOCK_EDITOR_EDIT_COUNT_BY_USER.experienced
+  return null
+}
+
+export function isDefaultMockEditorEditCountByUser(
+  user: ConfigUser,
+  byUser: MockEditorEditCountByUser,
+): boolean {
+  if (user === 'new') return byUser.new === DEFAULT_MOCK_EDITOR_EDIT_COUNT_BY_USER.new
+  if (user === 'experienced') {
+    return byUser.experienced === DEFAULT_MOCK_EDITOR_EDIT_COUNT_BY_USER.experienced
+  }
+  return true
+}
+
+function mergeMockEditorEditCountByUser(stored: unknown, legacySingle?: unknown): MockEditorEditCountByUser {
+  const base = { ...DEFAULT_MOCK_EDITOR_EDIT_COUNT_BY_USER }
+  if (typeof stored === 'object' && stored !== null) {
+    const record = stored as Record<string, unknown>
+    if (isConfigMockEditorEditCount(record.new)) base.new = record.new
+    if (isConfigMockEditorEditCount(record.experienced)) base.experienced = record.experienced
+  }
+  if (isConfigMockEditorEditCount(legacySingle)) {
+    base.experienced = legacySingle
+    if (legacySingle === 'experienced') base.new = 'none'
+  }
+  return base
+}
+
+const VALID_MOCK_EDITOR_EDIT_COUNTS = new Set<ConfigMockEditorEditCount>(
+  CONFIG_MOCK_EDITOR_EDIT_COUNT_ITEMS.map((item) => item.value),
+)
+
+export function isConfigMockEditorEditCount(value: unknown): value is ConfigMockEditorEditCount {
+  return typeof value === 'string' && VALID_MOCK_EDITOR_EDIT_COUNTS.has(value as ConfigMockEditorEditCount)
+}
+
+/** Representative edit count for a mock bucket (Suggestion Mode gates). */
+export function mockBucketToEditCount(bucket: ConfigMockEditorEditCount): number {
+  switch (bucket) {
+    case 'none':
+      return 0
+    case 'new':
+      return 10
+    case 'intermediate':
+      return 500
+    case 'experienced':
+      return 1000
+  }
+}
+
+/** ≥1,000 edits — unlocks "Add a link" suggestions. */
+export function editorIsExperienced(edits: number): boolean {
+  return edits >= 1000
+}
+
+/** ≥25 edits — unlocks experimental lead-length suggestions. */
+export function editorHasAtLeast25Edits(edits: number): boolean {
+  return edits >= 25
+}
+
+/** ≤10 edits — first completed suggestion can offer the publish path. */
+export function editorShowsPublishPath(edits: number): boolean {
+  return edits <= 10
+}
+
 export type PageListKey = 'watchlist' | 'readingList' | 'editedPages'
 
 export interface UserPageLists {
@@ -25,6 +120,8 @@ export interface Config {
   /** Wikipedia username when `user` is `'real'`. */
   realUsername: string
   userPageLists: Record<ConfigUser, UserPageLists>
+  /** Mock Edits dropdown value per preset (New user / Experienced editor). */
+  mockEditorEditCountByUser: MockEditorEditCountByUser
 }
 
 export const DEFAULT_USER_PAGE_LISTS: Record<ConfigUser, UserPageLists> = {
@@ -77,6 +174,7 @@ export const DEFAULT_CONFIG: Config = {
   user: 'new',
   realUsername: 'Todepond',
   userPageLists: cloneUserPageListsMap(DEFAULT_USER_PAGE_LISTS),
+  mockEditorEditCountByUser: { ...DEFAULT_MOCK_EDITOR_EDIT_COUNT_BY_USER },
 }
 
 export const PROTOWIKI_API_USER_AGENT = 'ProtoWiki/0.4'
@@ -309,15 +407,22 @@ export function normalizeConfig(input: unknown): Config {
     }
   }
 
+  const user = isConfigUser(record.user) ? record.user : DEFAULT_CONFIG.user
+  const mockEditorEditCountByUser = mergeMockEditorEditCountByUser(
+    record.mockEditorEditCountByUser,
+    record.mockEditorEditCount,
+  )
+
   return {
     theme: isConfigTheme(record.theme) ? record.theme : DEFAULT_CONFIG.theme,
     appPlatform: isConfigAppPlatform(record.appPlatform)
       ? record.appPlatform
       : DEFAULT_CONFIG.appPlatform,
     webSkin: isConfigWebSkin(record.webSkin) ? record.webSkin : DEFAULT_CONFIG.webSkin,
-    user: isConfigUser(record.user) ? record.user : DEFAULT_CONFIG.user,
+    user,
     realUsername,
     userPageLists,
+    mockEditorEditCountByUser,
   }
 }
 
@@ -368,6 +473,7 @@ function cloneConfig(config: Config): Config {
     user: config.user,
     realUsername: config.realUsername,
     userPageLists: cloneUserPageListsMap(config.userPageLists),
+    mockEditorEditCountByUser: { ...config.mockEditorEditCountByUser },
   }
 }
 

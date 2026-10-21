@@ -6,6 +6,8 @@ import { CdxButton, CdxIcon } from '@wikimedia/codex'
 import { resolveHeaderIcon } from '@/components/header/headerIcons'
 import type { HeaderItem } from '@/components/header/headerItems'
 import MobileSearchOverlay from '@/components/search/MobileSearchOverlay.vue'
+import { MINERVA_DEFAULT_RIGHT } from './minervaHeaderDefaults'
+import { useWordmarkMainPageLink } from '@/composables/useWordmarkMainPageLink'
 import { globalTheme } from '@/theme'
 import type { Theme } from '@/theme'
 
@@ -18,18 +20,16 @@ const MAX_FLANK_ITEMS = 4
 
 const DEFAULT_LEFT: HeaderItem[] = [{ type: 'button', icon: 'menu', label: 'Main menu' }]
 
-/**
- * The default search button opens Minerva's full-screen search, so every
- * mobile chrome has one that works. A prototype passing its own `right` items
- * brings its own search.
- */
+/** Default search opens Minerva's full-screen overlay unless `right` overrides it. */
 const searchOpen = ref(false)
 
-const DEFAULT_RIGHT: HeaderItem[] = [
-  { type: 'button', icon: 'search', label: 'Search', onClick: () => (searchOpen.value = true) },
-  { type: 'button', icon: 'bell-outline', label: 'Notifications' },
-  { type: 'button', icon: 'user-avatar-outline', label: 'User menu' },
-]
+function withDefaultSearchHandler(items: HeaderItem[]): HeaderItem[] {
+  return items.map((item) =>
+    item.type === 'button' && item.icon === 'search' && !item.onClick
+      ? { ...item, onClick: () => (searchOpen.value = true) }
+      : item,
+  )
+}
 
 interface Props {
   theme?: Theme
@@ -40,6 +40,8 @@ interface Props {
   wordmarkSrc?: string
   /** Minerva wordmark; defaults to **`wordmarkSrc`** then EN constant. */
   mobileWordmarkSrc?: string
+  /** When true, default wordmark links to the Main Page. */
+  prototypingSettings?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -49,9 +51,11 @@ const props = withDefaults(defineProps<Props>(), {
   right: undefined,
   wordmarkSrc: undefined,
   mobileWordmarkSrc: undefined,
+  prototypingSettings: true,
 })
 
 const effectiveTheme = computed<Theme>(() => props.theme ?? globalTheme.value)
+const wordmarkMainPageLink = useWordmarkMainPageLink()
 
 const wordmarkResolved = computed(
   () => props.mobileWordmarkSrc ?? props.wordmarkSrc ?? WIKIPEDIA_WORDMARK_EN,
@@ -66,7 +70,9 @@ function clampFlank(items: HeaderItem[], side: 'left' | 'right'): HeaderItem[] {
 }
 
 const effectiveLeft = computed(() => clampFlank(props.left ?? DEFAULT_LEFT, 'left'))
-const effectiveRight = computed(() => clampFlank(props.right ?? DEFAULT_RIGHT, 'right'))
+const effectiveRight = computed(() =>
+  clampFlank(withDefaultSearchHandler(props.right ?? MINERVA_DEFAULT_RIGHT), 'right'),
+)
 const effectiveMiddle = computed(() => props.middle ?? [])
 
 const useDefaultWordmark = computed(() => props.middle === undefined)
@@ -138,18 +144,22 @@ function isExternalHref(href: string): boolean {
       </div>
 
       <div v-if="showMiddle" class="minerva-chrome-header__middle">
-        <RouterLink
+        <component
+          :is="props.prototypingSettings ? RouterLink : 'span'"
           v-if="useDefaultWordmark"
           class="minerva-chrome-header__brand"
-          to="/"
-          aria-label="Visit the main page"
+          v-bind="
+            props.prototypingSettings
+              ? { to: wordmarkMainPageLink, 'aria-label': 'Visit the main page' }
+              : {}
+          "
         >
           <img
             class="minerva-chrome-header__wordmark-img"
             :src="wordmarkResolved"
             alt="Wikipedia"
           />
-        </RouterLink>
+        </component>
         <template v-else v-for="(item, index) in effectiveMiddle" :key="`middle-${index}`">
           <component
             v-if="item.type === 'component'"

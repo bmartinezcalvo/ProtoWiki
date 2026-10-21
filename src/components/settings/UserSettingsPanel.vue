@@ -10,7 +10,12 @@ import {
 } from '@wikimedia/codex'
 
 import { useConfig } from '@/composables/useConfig'
-import { CONFIG_USER_MENU_ITEMS, formatPageList, parsePageList } from '@/config'
+import {
+  CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS,
+  CONFIG_USER_MENU_ITEMS,
+  formatPageList,
+  parsePageList,
+} from '@/config'
 
 import './settingsPanel.css'
 
@@ -22,6 +27,7 @@ const {
   isCurrentUserPageListsModified,
   setCurrentUserPageList,
   resetCurrentUserPageLists,
+  mockEditorEditCount,
 } = useConfig()
 
 const userMenuItems = computed(() =>
@@ -79,6 +85,14 @@ const editedPagesText = computed({
       <CdxField class="user-settings-panel__wiki-field">
         <template #label>Wiki</template>
         <CdxTextInput v-model="lang" class="settings-panel__input" />
+      </CdxField>
+      <CdxField v-if="user !== 'logged-out' && user !== 'real'">
+        <template #label>Edits</template>
+        <CdxSelect
+          v-model:selected="mockEditorEditCount"
+          class="settings-panel__input"
+          :menu-items="CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS"
+        />
       </CdxField>
       <CdxField v-if="user === 'real'">
         <template #label>Username</template>

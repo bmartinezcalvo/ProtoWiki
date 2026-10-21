@@ -195,7 +195,7 @@ changes:
 - Popovers: settings panels (`SettingsPopover`) and the article
   language menu (`ArticleHeader`).
 - Search: `Search` (`CdxTypeaheadSearch`).
-- Loading: `ArticleLive` / `ArticleSnapshot` (`CdxProgressBar`).
+- Loading: `ArticleLive` (`CdxProgressBar`).
 - Icons across chrome header/footer and homepage modules.
 - Toggle light/dark theme to confirm token injection in
   [`src/theme.ts`](../../../src/theme.ts) still cascades.

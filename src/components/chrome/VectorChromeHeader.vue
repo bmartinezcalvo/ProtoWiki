@@ -14,14 +14,19 @@ import {
   cdxIconWatchlist,
 } from '@wikimedia/codex-icons'
 
+import AppearanceSettingsPanel from '@/components/settings/AppearanceSettingsPanel.vue'
+import SettingsPopover from '@/components/settings/SettingsPopover.vue'
+import UserSettingsPanel from '@/components/settings/UserSettingsPanel.vue'
 import { useChromeSearchHandlers } from '@/composables/useChromeSearch'
 import { useConfig } from '@/composables/useConfig'
+import { useWordmarkMainPageLink } from '@/composables/useWordmarkMainPageLink'
 import { DEFAULT_CHROME_NAV_TOOLS, type ChromeNavTool } from './headerNavTools'
 import { globalTheme } from '@/theme'
 import type { Theme } from '@/theme'
 import Search, { type SearchSubmitPayload } from '../Search.vue'
 
 const chromeSearchHandlers = useChromeSearchHandlers()
+const wordmarkMainPageLink = useWordmarkMainPageLink()
 
 const { user } = useConfig()
 
@@ -47,6 +52,10 @@ interface Props {
    * **`#nav`** replaces the whole cluster regardless.
    */
   navTools?: ChromeNavTool[]
+  /**
+   * When true, appearance and user tools open prototyping settings; wordmark links to the Main Page.
+   */
+  prototypingSettings?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -55,6 +64,7 @@ const props = withDefaults(defineProps<Props>(), {
   wordmarkSrc: undefined,
   taglineSrc: undefined,
   navTools: undefined,
+  prototypingSettings: true,
 })
 
 const effectiveTheme = computed<Theme>(() => props.theme ?? globalTheme.value)
@@ -116,7 +126,15 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
           </span>
         </slot>
 
-        <RouterLink class="vector-chrome-header__brand-link" to="/" aria-label="Visit the main page">
+        <component
+          :is="props.prototypingSettings ? RouterLink : 'span'"
+          class="vector-chrome-header__brand-link"
+          v-bind="
+            props.prototypingSettings
+              ? { to: wordmarkMainPageLink, 'aria-label': 'Visit the main page' }
+              : {}
+          "
+        >
           <slot name="logo">
             <span class="vector-chrome-header__wordmarks">
               <img
@@ -135,7 +153,7 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
               />
             </span>
           </slot>
-        </RouterLink>
+        </component>
       </div>
 
       <div
@@ -165,26 +183,47 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
           <CdxIcon :icon="cdxIconSearch" />
         </CdxButton>
         <slot name="username">
-          <div v-if="isLoggedOut" class="vector-chrome-header__logged-out-toolbar">
-            <a
-              class="vector-chrome-header__text-link"
-              href="https://donate.wikimedia.org/"
-              rel="noopener noreferrer"
-            >
+          <SettingsPopover v-if="isLoggedOut && props.prototypingSettings">
+            <template #default="{ openPopover }">
+              <span class="vector-chrome-header__logged-out-toolbar">
+                <a
+                  class="vector-chrome-header__text-link"
+                  href="#"
+                  @click.prevent
+                >
+                  Donate
+                </a>
+                <a
+                  class="vector-chrome-header__text-link"
+                  href="#"
+                  @click.prevent="openPopover($event)"
+                >
+                  Create account
+                </a>
+                <a
+                  class="vector-chrome-header__text-link"
+                  href="#"
+                  @click.prevent="openPopover($event)"
+                >
+                  Log in
+                </a>
+              </span>
+            </template>
+            <template #panel>
+              <UserSettingsPanel />
+            </template>
+          </SettingsPopover>
+          <div
+            v-else-if="isLoggedOut"
+            class="vector-chrome-header__logged-out-toolbar"
+          >
+            <a class="vector-chrome-header__text-link" href="#" @click.prevent>
               Donate
             </a>
-            <a
-              class="vector-chrome-header__text-link"
-              href="https://en.wikipedia.org/w/index.php?title=Special:CreateAccount"
-              rel="noopener noreferrer"
-            >
+            <a class="vector-chrome-header__text-link" href="#" @click.prevent>
               Create account
             </a>
-            <a
-              class="vector-chrome-header__text-link"
-              href="https://en.wikipedia.org/w/index.php?title=Special:UserLogin"
-              rel="noopener noreferrer"
-            >
+            <a class="vector-chrome-header__text-link" href="#" @click.prevent>
               Log in
             </a>
           </div>
@@ -198,7 +237,27 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
           </a>
         </slot>
         <slot v-if="!isLoggedOut" name="nav">
-          <CdxButton v-if="navHas('appearance')" weight="quiet" aria-label="Appearance">
+          <SettingsPopover v-if="navHas('appearance') && props.prototypingSettings">
+            <template #default="{ toggle, open }">
+              <CdxButton
+                weight="quiet"
+                aria-label="Appearance"
+                aria-haspopup="dialog"
+                :aria-expanded="open"
+                @click="toggle"
+              >
+                <CdxIcon :icon="cdxIconAppearance" />
+              </CdxButton>
+            </template>
+            <template #panel>
+              <AppearanceSettingsPanel :show-app-platform="false" />
+            </template>
+          </SettingsPopover>
+          <CdxButton
+            v-else-if="navHas('appearance')"
+            weight="quiet"
+            aria-label="Appearance"
+          >
             <CdxIcon :icon="cdxIconAppearance" />
           </CdxButton>
           <CdxButton
@@ -218,14 +277,37 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
             <CdxIcon :icon="cdxIconWatchlist" />
           </CdxButton>
           <div v-if="navHas('user')" class="vector-chrome-header__user-menu">
-            <CdxButton weight="quiet" aria-label="User menu" aria-haspopup="menu">
-              <CdxIcon :icon="cdxIconUserAvatar" />
-              <CdxIcon
-                class="vector-chrome-header__user-menu-caret"
-                :icon="cdxIconDownTriangle"
-                size="small"
-              />
-            </CdxButton>
+            <slot name="user-menu">
+              <SettingsPopover v-if="props.prototypingSettings">
+                <template #default="{ toggle, open }">
+                  <CdxButton
+                    weight="quiet"
+                    aria-label="Mock user settings"
+                    aria-haspopup="dialog"
+                    :aria-expanded="open"
+                    @click="toggle"
+                  >
+                    <CdxIcon :icon="cdxIconUserAvatar" />
+                    <CdxIcon
+                      class="vector-chrome-header__user-menu-caret"
+                      :icon="cdxIconDownTriangle"
+                      size="small"
+                    />
+                  </CdxButton>
+                </template>
+                <template #panel>
+                  <UserSettingsPanel />
+                </template>
+              </SettingsPopover>
+              <CdxButton v-else weight="quiet" aria-label="User menu" aria-haspopup="menu">
+                <CdxIcon :icon="cdxIconUserAvatar" />
+                <CdxIcon
+                  class="vector-chrome-header__user-menu-caret"
+                  :icon="cdxIconDownTriangle"
+                  size="small"
+                />
+              </CdxButton>
+            </slot>
           </div>
         </slot>
       </div>
@@ -362,7 +444,7 @@ function handleSearchSubmit(payload: SearchSubmitPayload) {
 
 .vector-chrome-header__text-link {
   color: var(--color-progressive, #36c);
-  font-size: var(--font-size-medium, 1rem);
+  font-size: var(--font-size-small, 14px);
   font-weight: normal;
   line-height: 1.4;
   text-decoration: none;
