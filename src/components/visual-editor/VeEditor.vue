@@ -530,11 +530,14 @@ const bannerDismissed = ref(false)
  */
 const PILL_DELAY_MS = 1000
 const pillHeld = ref(false)
+/** Welcome "View suggestions" / "Not now": no pill until a suggestion is completed or dismissed. */
+const pillWaitsForAction = ref(false)
 let pillHoldTimer: ReturnType<typeof setTimeout> | undefined
 let pillHeldForPublishPath = false
 
 function holdPill(ms: number) {
   if (!discoverability) return
+  pillWaitsForAction.value = false
   clearTimeout(pillHoldTimer)
   pillHeldForPublishPath = false
   pillHeld.value = true
@@ -543,6 +546,7 @@ function holdPill(ms: number) {
 
 function holdPillUntilPublishPathCloses() {
   if (!discoverability) return
+  pillWaitsForAction.value = false
   clearTimeout(pillHoldTimer)
   pillHeld.value = true
   pillHeldForPublishPath = true
@@ -1544,14 +1548,14 @@ let welcomeChoice = false
 function welcomeViewSuggestions() {
   welcomeChoice = true
   welcomeOpen.value = false
-  bannerDismissed.value = true
+  pillWaitsForAction.value = true
   guided.value = true
   openFirstSuggestion()
 }
 function welcomeNotNow() {
   welcomeChoice = true
   welcomeOpen.value = false
-  bannerDismissed.value = true
+  pillWaitsForAction.value = true
 }
 function onWelcomeOpen(open: boolean) {
   welcomeOpen.value = open
@@ -1822,7 +1826,7 @@ const titleFor = (f: Finding) =>
 
         <!-- View suggestions -->
         <div
-          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld"
+          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld && !pillWaitsForAction"
           class="ve-view-pill-wrap"
           :class="{ 've-view-pill-wrap--up': offscreenDirection === 'up' }"
           :style="pillColumn"
@@ -1848,7 +1852,7 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: View suggestions banner -->
     <div
-      v-if="isMobile && !review && suggestionsOn && !detecting && !sheetOpen && (onlyElsewhere || (pendingDisplayed.length && (discoverability ? !anyInView : !seenOnMobile))) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld"
+      v-if="isMobile && !review && suggestionsOn && !detecting && !sheetOpen && (onlyElsewhere || (pendingDisplayed.length && (discoverability ? !anyInView : !seenOnMobile))) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld && !pillWaitsForAction"
       class="ve-mobile-banner"
     >
       <div
