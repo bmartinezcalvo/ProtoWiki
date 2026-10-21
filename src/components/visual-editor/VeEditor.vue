@@ -526,6 +526,8 @@ const seenOnMobile = ref(false)
 const bannerDismissed = ref(false)
 /** First pending suggestion whose highlight is in the viewport (discoverability nudges). */
 const firstVisibleId = ref<string | null>(null)
+/** Every pending suggestion in the viewport, in document order. */
+const visibleIds = ref<string[]>([])
 
 function updateViewport() {
   const wrap = wrapRef.value
@@ -538,17 +540,18 @@ function updateViewport() {
   let nearestAbove = -Infinity
   let nearestBelow = Infinity
   let inView = false
-  let firstVisible: string | null = null
+  const visible: string[] = []
   for (const f of pendingDisplayed.value) {
     if (!boxes.value.get(f.id)?.length) continue
     const top = desiredTop(f) + origin.top
     if (top >= viewTop && top <= viewBottom) {
       inView = true
-      firstVisible ??= f.id
+      visible.push(f.id)
     } else if (top < viewTop) nearestAbove = Math.max(nearestAbove, top)
     else nearestBelow = Math.min(nearestBelow, top)
   }
-  firstVisibleId.value = firstVisible
+  firstVisibleId.value = visible[0] ?? null
+  if (visible.join() !== visibleIds.value.join()) visibleIds.value = visible
   anyInView.value = inView
   if (inView && isMobile.value) seenOnMobile.value = true
   if (inView) offscreenDirection.value = null
@@ -1113,7 +1116,8 @@ const gutterMarks = computed(() => {
     const list = boxes.value.get(f.id)
     if (!list?.length) continue
     const top = Math.min(...list.map((b) => b.top))
-    const state = successIds.has(f.id) ? 'success' : f.mode === 'check' ? 'check' : 'pending'
+    const completed = successIds.has(f.id) || (publishPathId.value === f.id && status.get(f.id) === 'done')
+    const state = completed ? 'success' : f.mode === 'check' ? 'check' : 'pending'
     const existing = marks.find((m) => Math.abs(m.top - top) < 20)
     if (existing) {
       existing.ids.push(f.id)
@@ -1394,6 +1398,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   clearTimeout(layoutTimer)
   clearTimeout(idleTimer)
+  clearInterval(cardBounceTimer)
 })
 
 watch(displayed, () => scheduleLayout())
@@ -1484,7 +1489,26 @@ const nudging = computed(
 )
 const pulseMarkId = computed(() => (nudging.value && nudgeMode.value === 'pulse' && isMobile.value ? firstVisibleId.value : null))
 const bounceMarkId = computed(() => (nudging.value && nudgeMode.value === 'idle' && isMobile.value ? firstVisibleId.value : null))
-const bounceCardId = computed(() => (nudging.value && !isMobile.value ? firstVisibleId.value : null))
+/**
+ * Desktop cards. First time: the bounce goes through the visible cards in
+ * order, one bounce each (first, second, third… and round again).
+ * Next times: the first visible card.
+ */
+const cardBounceStep = ref(0)
+const cardBounceSequence = computed(() => nudging.value && nudgeMode.value === 'pulse' && !isMobile.value)
+let cardBounceTimer: ReturnType<typeof setInterval> | undefined
+watch(cardBounceSequence, (on) => {
+  clearInterval(cardBounceTimer)
+  cardBounceStep.value = 0
+  if (on) cardBounceTimer = setInterval(() => cardBounceStep.value++, 2000)
+})
+watch(visibleIds, () => (cardBounceStep.value = 0))
+const bounceCardId = computed(() => {
+  if (!nudging.value || isMobile.value) return null
+  if (!cardBounceSequence.value) return firstVisibleId.value
+  const ids = visibleIds.value
+  return ids.length ? ids[cardBounceStep.value % ids.length] : null
+})
 const pillBouncing = computed(() => nudging.value && !firstVisibleId.value)
 
 function openFirstSuggestion() {
@@ -1801,7 +1825,7 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: View suggestions banner -->
     <div
-      v-if="isMobile && !review && suggestionsOn && !detecting && !seenOnMobile && !sheetOpen && (pendingDisplayed.length || onlyElsewhere) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen"
+      v-if="isMobile && !review && suggestionsOn && !detecting && !sheetOpen && (onlyElsewhere || (pendingDisplayed.length && (discoverability ? !anyInView : !seenOnMobile))) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen"
       class="ve-mobile-banner"
     >
       <div
