@@ -11,7 +11,7 @@
  * - Publish runs the pre-save "Before publishing" step with checks only.
  */
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
-import { CdxButton, CdxDialog, CdxIcon, CdxToast } from '@wikimedia/codex'
+import { CdxButton, CdxCheckbox, CdxDialog, CdxIcon, CdxToast } from '@wikimedia/codex'
 import {
   cdxIconAlert,
   cdxIconArrowDown,
@@ -1454,6 +1454,14 @@ const loadingFound = ref(0)
 const welcomeOpen = ref(false)
 const welcomeCount = ref(0)
 const beforeYouGoOpen = ref(false)
+/** "Don't show this again": saved when the dialog closes, however it closes. */
+const beforeYouGoDontShow = ref(false)
+function saveBeforeYouGoChoice() {
+  if (beforeYouGoDontShow.value) suggestionSettings.hideBeforeYouGo = true
+}
+watch(beforeYouGoOpen, (open) => {
+  if (!open) saveBeforeYouGoChoice()
+})
 /** Came in through the welcome's "View suggestions": publish prompt on the first completion. */
 const guided = ref(false)
 /** 'pulse': first-time nudge (always on). 'idle': next-times nudge after IDLE_MS. */
@@ -1561,10 +1569,13 @@ function onWelcomeOpen(open: boolean) {
 }
 
 function beforeYouGoViewSuggestions() {
+  saveBeforeYouGoChoice()
   beforeYouGoOpen.value = false
   openFirstSuggestion()
 }
 function beforeYouGoLeave() {
+  // Saved here: leaving unmounts the editor before the watcher would run.
+  saveBeforeYouGoChoice()
   beforeYouGoOpen.value = false
   emit('exit')
 }
@@ -1576,7 +1587,10 @@ const leaveOpen = ref(false)
 
 function requestExit() {
   if (hasChanges.value) leaveOpen.value = true
-  else if (discoverability && !firstTime && pendingSuggestions.value.length) beforeYouGoOpen.value = true
+  else if (discoverability && !firstTime && !suggestionSettings.hideBeforeYouGo && pendingSuggestions.value.length) {
+    beforeYouGoDontShow.value = false
+    beforeYouGoOpen.value = true
+  }
   else emit('exit')
 }
 
@@ -1966,7 +1980,8 @@ const titleFor = (f: Finding) =>
 
     <!-- Discoverability, next times: leaving without changes while suggestions remain. -->
     <CdxDialog v-model:open="beforeYouGoOpen" class="ve-leave" title="Before you go" use-close-button>
-      There are some guided tasks to improve this article. Do you want to try them?
+      <p class="ve-before-you-go__text">There are some guided tasks to improve this article. Do you want to try them?</p>
+      <CdxCheckbox v-model="beforeYouGoDontShow" class="ve-before-you-go__dont-show">Don’t show this again</CdxCheckbox>
       <template #footer>
         <div class="ve-leave__actions" :class="{ 've-leave__actions--stacked': isMobile }">
           <template v-if="isMobile">
@@ -2074,6 +2089,15 @@ const titleFor = (f: Finding) =>
 .ve-leave__actions--stacked .cdx-button {
   width: 100%;
   max-width: none;
+}
+
+/* Discoverability: "Before you go" */
+.ve-before-you-go__text {
+  margin: 0;
+}
+
+.ve-before-you-go__dont-show {
+  margin: 16px 0 0;
 }
 
 /* Discoverability: welcome dialog */

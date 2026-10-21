@@ -23,6 +23,8 @@ export interface SuggestionSettings {
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
   rememberedToggle: boolean
+  /** "Don't show this again" ticked in "Before you go" (discoverability). */
+  hideBeforeYouGo: boolean
 }
 
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
@@ -37,6 +39,7 @@ function defaults(): SuggestionSettings {
     >,
     firstTime: false,
     rememberedToggle: true,
+    hideBeforeYouGo: false,
   }
 }
 
