@@ -52,8 +52,8 @@ const props = withDefaults(
     /** Editor still loading: progress bar (Vector) / "Loading editor…" (Minerva). */
     loading?: boolean
     /**
-     * Suggestions discoverability loading messages, on both skins (replaces the
-     * progress bar): 1 "Loading editor…", 2 "Looking for suggestions…",
+     * Suggestions discoverability loading messages, Minerva only:
+     * 1 "Loading editor…", 2 "Looking for suggestions…",
      * 3 "N suggestions found", 4 fading out. 0 / unset: the default loading state.
      */
     loadingPhase?: number
@@ -201,13 +201,11 @@ onBeforeUnmount(() => {
 <template>
   <!-- Loading: discoverability messages ("Loading editor…" → "Looking for suggestions…" → "N found") -->
   <div
-    v-if="loading && loadingPhase > 0"
-    class="ve-toolbar ve-toolbar--loading ve-toolbar--phased"
-    :class="{ 've-toolbar--slide-in': skin === 'mobile' }"
-    :data-skin="skin"
+    v-if="loading && loadingPhase > 0 && skin === 'mobile'"
+    class="ve-toolbar ve-toolbar--loading ve-toolbar--phased ve-toolbar--slide-in"
+    data-skin="mobile"
   >
     <button
-      v-if="skin === 'mobile'"
       class="ve-toolbar__btn ve-toolbar__btn--fixed ve-toolbar__btn--close"
       aria-label="Close"
       @click="emit('close')"
@@ -652,7 +650,7 @@ onBeforeUnmount(() => {
   min-width: 20px;
 }
 
-/* Discoverability loading messages (both skins) */
+/* Discoverability loading messages (Minerva) */
 .ve-toolbar--phased {
   justify-content: flex-start;
   flex-wrap: nowrap;
@@ -662,10 +660,6 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   transition: opacity 300ms ease;
-}
-
-.ve-toolbar--phased[data-skin='desktop'] .ve-toolbar__loading-label {
-  font-size: var(--font-size-small, 14px);
 }
 
 .ve-toolbar__loading-label--fading {

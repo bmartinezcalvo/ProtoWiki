@@ -1375,7 +1375,7 @@ onMounted(async () => {
   resizeObserver = new ResizeObserver(() => scheduleLayout())
   resizeObserver.observe(surface)
   const detection = runDetection()
-  if (discoverability) await discoverabilityLoading(detection)
+  if (discoverability && isMobile.value) await discoverabilityLoading(detection)
   else await minimumLoad
   loadingEditor.value = false
   emit('sidebar', suggestionsOn.value && !isMobile.value)
@@ -1416,7 +1416,7 @@ const discoverability = !!inject(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, null)
 const firstTime = suggestionSettings.firstTime
 const IDLE_MS = 3000
 
-/** Loading messages: 1 "Loading editor…", 2 "Looking for suggestions…", 3 "N found", 4 fade out. */
+/** Minerva loading messages: 1 "Loading editor…", 2 "Looking for suggestions…", 3 "N found", 4 fade out. */
 const loadingPhase = ref(0)
 const loadingFound = ref(0)
 const welcomeOpen = ref(false)
@@ -1497,6 +1497,7 @@ let welcomeChoice = false
 function welcomeViewSuggestions() {
   welcomeChoice = true
   welcomeOpen.value = false
+  bannerDismissed.value = true
   guided.value = true
   openFirstSuggestion()
 }
@@ -1909,8 +1910,8 @@ const titleFor = (f: Finding) =>
       <img class="ve-welcome__image" :src="welcomeImage" width="320" height="256" alt="" />
       <template #footer>
         <div class="ve-leave__actions ve-leave__actions--stacked">
-          <CdxButton action="progressive" weight="primary" @click="welcomeViewSuggestions">View suggestions</CdxButton>
-          <CdxButton @click="welcomeNotNow">Not now</CdxButton>
+          <CdxButton :size="isMobile ? 'large' : 'medium'" action="progressive" weight="primary" @click="welcomeViewSuggestions">View suggestions</CdxButton>
+          <CdxButton :size="isMobile ? 'large' : 'medium'" @click="welcomeNotNow">Not now</CdxButton>
         </div>
       </template>
     </CdxDialog>
@@ -1921,8 +1922,8 @@ const titleFor = (f: Finding) =>
       <template #footer>
         <div class="ve-leave__actions" :class="{ 've-leave__actions--stacked': isMobile }">
           <template v-if="isMobile">
-            <CdxButton action="progressive" @click="beforeYouGoViewSuggestions">View suggestions</CdxButton>
-            <CdxButton @click="beforeYouGoLeave">Leave the editor</CdxButton>
+            <CdxButton :size="isMobile ? 'large' : 'medium'" action="progressive" @click="beforeYouGoViewSuggestions">View suggestions</CdxButton>
+            <CdxButton :size="isMobile ? 'large' : 'medium'" @click="beforeYouGoLeave">Leave the editor</CdxButton>
           </template>
           <template v-else>
             <CdxButton @click="beforeYouGoLeave">Leave the editor</CdxButton>
@@ -1936,8 +1937,8 @@ const titleFor = (f: Finding) =>
       Are you sure you want to leave editing mode without publishing first?
       <template #footer>
         <div class="ve-leave__actions" :class="{ 've-leave__actions--stacked': isMobile }">
-          <CdxButton action="destructive" @click="discardEdits">Discard edits</CdxButton>
-          <CdxButton @click="leaveOpen = false">Continue editing</CdxButton>
+          <CdxButton :size="isMobile ? 'large' : 'medium'" action="destructive" @click="discardEdits">Discard edits</CdxButton>
+          <CdxButton :size="isMobile ? 'large' : 'medium'" @click="leaveOpen = false">Continue editing</CdxButton>
         </div>
       </template>
     </CdxDialog>
@@ -2035,19 +2036,19 @@ const titleFor = (f: Finding) =>
 .ve-welcome__image {
   display: block;
   width: 100%;
-  max-width: 320px;
+  max-width: 240px;
   height: auto;
   margin: 16px auto 0;
 }
 
 /* Discoverability nudges */
-.ve-view-pill--bounce {
+.ve-view-pill.ve-view-pill--bounce {
   animation:
     ve-pill-in 220ms ease,
     ve-nudge-bounce 2s ease-in-out 220ms infinite;
 }
 
-.ve-card--bounce {
+.ve-card.ve-card--bounce {
   animation: ve-nudge-bounce 2s ease-in-out infinite;
 }
 
@@ -2129,8 +2130,8 @@ const titleFor = (f: Finding) =>
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ve-view-pill--bounce,
-  .ve-card--bounce,
+  .ve-view-pill.ve-view-pill--bounce,
+  .ve-card.ve-card--bounce,
   .ve-gutter__mark--pulse::after,
   .ve-gutter__mark--bounce .cdx-icon {
     animation: none;
@@ -2704,10 +2705,12 @@ const titleFor = (f: Finding) =>
 .ve-editor[data-skin='mobile'].ve-editor--suggestions .ve-editor__layout::after {
   content: '';
   position: absolute;
-  top: 0;
+  /* Up to the fixed toolbar: over the page's 48px toolbar padding and the 6px
+     of Minerva header still showing under the toolbar. */
+  top: -54px;
   right: -16px;
   width: 44px;
-  height: 100%;
+  height: calc(100% + 54px);
   background-color: var(--background-color-neutral-subtle, #f8f9fa);
   border-left: 1px solid var(--border-color-muted, #dadde3);
   pointer-events: none;
