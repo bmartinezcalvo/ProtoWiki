@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue'
-import { CdxButton, CdxIcon, CdxPopover, CdxTextInput } from '@wikimedia/codex'
 import {
+  CdxButton,
+  CdxIcon,
+  CdxPopover,
+  CdxTextInput,
+  CdxToast,
+  CdxToastContainer,
+} from '@wikimedia/codex'
+import {
+  cdxIconBookmark,
+  cdxIconBookmarkOutline,
   cdxIconDownTriangle,
   cdxIconDownload,
   cdxIconEdit,
@@ -38,17 +47,35 @@ interface Props {
    * Drives the structural mobile vs desktop layout (icon toolbar vs text actions).
    */
   skin?: Skin
+  /** Which page-action tab is selected (desktop): **`'read'`** or **`'edit'`**. */
+  activeView?: 'read' | 'edit'
+  /**
+   * Main Page header, as production renders it. Desktop: the heading is visually
+   * hidden, with no languages button or tagline, the first tab reads **Main Page**,
+   * and **Edit** is replaced by a non-functional **View source** action. Mobile:
+   * no tabs or toolbar; the heading is hidden logged out and reads “Welcome, Name!”
+   * logged in.
+   */
+  mainPage?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   languagesCount: 18,
   skin: undefined,
+  activeView: 'read',
+  mainPage: false,
 })
 
 const inheritedSkin = inject(PROTOWIKI_CHROME_SKIN)
 const effectiveSkin = computed<Skin>(() => props.skin ?? inheritedSkin?.value ?? globalSkin.value)
-const { user } = useConfig()
+const { user, displayName } = useConfig()
 const isLoggedOut = computed(() => user.value === 'logged-out')
+/** Main Page on mobile: no tabs or toolbar, only the heading. */
+const bareMainPage = computed(() => props.mainPage && effectiveSkin.value === 'mobile')
+/** Logged-in Main Page on mobile: the heading is a visible greeting. */
+const greeting = computed(() =>
+  bareMainPage.value && !isLoggedOut.value ? `Welcome, ${displayName.value}!` : undefined,
+)
 
 const languagesButtonLabel = computed(() => {
   const n = props.languagesCount ?? 18
@@ -61,12 +88,27 @@ const emit = defineEmits<{
   readClick: []
   editClick: []
   historyClick: []
+  watchClick: []
   bookmarkClick: []
   downloadClick: []
   moreClick: []
   languageSelect: [link: ArticleLanguageLink]
   languageSettingsClick: []
 }>()
+
+const isWatched = ref(false)
+const isBookmarked = ref(false)
+const showSavedToast = ref(false)
+
+function onWatchClick() {
+  isWatched.value = !isWatched.value
+  emit('watchClick')
+}
+
+watch(isBookmarked, (saved) => {
+  showSavedToast.value = saved
+  emit('bookmarkClick')
+})
 
 const langMenuOpen = ref(false)
 const langSearch = ref('')
@@ -93,12 +135,26 @@ function onLanguagePick(row: ArticleLanguageLink) {
 </script>
 
 <template>
-  <header class="article-header" :data-skin="effectiveSkin">
+  <header
+    class="article-header"
+    :class="{ 'article-header--main-page': props.mainPage }"
+    :data-skin="effectiveSkin"
+  >
     <div class="article-header__title-row">
-      <h1 class="article-header__title">
-        <slot name="title">{{ title }}</slot>
+      <h1
+        class="article-header__title"
+        :class="{
+          'article-header__title--hidden': props.mainPage && !greeting,
+          'article-header__title--greeting': greeting,
+        }"
+      >
+        <template v-if="greeting">{{ greeting }}</template>
+        <slot v-else name="title">{{ title }}</slot>
       </h1>
-      <div v-if="effectiveSkin === 'desktop'" class="article-header__lang-anchor">
+      <div
+        v-if="effectiveSkin === 'desktop' && !props.mainPage"
+        class="article-header__lang-anchor"
+      >
         <button
           ref="langAnchor"
           type="button"
@@ -115,7 +171,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
       </div>
     </div>
 
-    <div class="article-header__toolbar">
+    <div v-if="!bareMainPage" class="article-header__toolbar">
       <nav class="article-header__tabs" aria-label="Page tabs">
         <a
           href="#"
@@ -123,7 +179,7 @@ function onLanguagePick(row: ArticleLanguageLink) {
           aria-current="page"
           @click.prevent="$emit('articleClick')"
         >
-          Article
+          {{ props.mainPage ? 'Main Page' : 'Article' }}
         </a>
         <a href="#" class="article-header__tab" @click.prevent="$emit('talkClick')"> Talk </a>
       </nav>
@@ -135,29 +191,55 @@ function onLanguagePick(row: ArticleLanguageLink) {
       >
         <a
           href="#"
-          class="article-header__action article-header__action--active"
-          aria-current="true"
+          class="article-header__tab"
+          :class="{ 'article-header__tab--active': activeView === 'read' }"
+          :aria-current="activeView === 'read' ? 'page' : undefined"
           @click.prevent="$emit('readClick')"
         >
           Read
         </a>
-        <a href="#" class="article-header__action" @click.prevent="$emit('editClick')"> Edit </a>
-        <a href="#" class="article-header__action" @click.prevent="$emit('historyClick')">
-          View history
-        </a>
-        <CdxButton
-          class="article-header__icon-btn"
-          weight="quiet"
-          aria-label="Watch"
-          @click="$emit('bookmarkClick')"
+        <a
+          v-if="!props.mainPage"
+          href="#"
+          class="article-header__tab"
+          :class="{ 'article-header__tab--active': activeView === 'edit' }"
+          :aria-current="activeView === 'edit' ? 'page' : undefined"
+          @click.prevent="$emit('editClick')"
         >
-          <CdxIcon :icon="cdxIconUnStar" />
-        </CdxButton>
+          Edit
+        </a>
+        <a v-else href="#" class="article-header__tab" @click.prevent> View source </a>
+        <div class="article-header__actions-trailing">
+          <a href="#" class="article-header__tab" @click.prevent="$emit('historyClick')">
+            View history
+          </a>
+          <div v-if="!isLoggedOut" class="article-header__watch-bookmark">
+            <CdxButton
+              class="article-header__watch"
+              action="progressive"
+              weight="quiet"
+              :aria-pressed="isWatched"
+              @click="onWatchClick"
+            >
+              <CdxIcon :icon="isWatched ? cdxIconUnStar : cdxIconStar" />
+              {{ isWatched ? 'Unwatch' : 'Watch' }}
+            </CdxButton>
+            <CdxButton
+              class="article-header__bookmark"
+              weight="quiet"
+              :aria-pressed="isBookmarked"
+              :aria-label="isBookmarked ? 'Remove from saved items' : 'Save page'"
+              @click="isBookmarked = !isBookmarked"
+            >
+              <CdxIcon :icon="isBookmarked ? cdxIconBookmark : cdxIconBookmarkOutline" />
+            </CdxButton>
+          </div>
+        </div>
       </nav>
     </div>
 
     <div
-      v-if="effectiveSkin === 'mobile'"
+      v-if="effectiveSkin === 'mobile' && !bareMainPage"
       class="article-header__icon-toolbar"
       :class="{ 'article-header__icon-toolbar--logged-out': isLoggedOut }"
       aria-label="Page actions"
@@ -174,7 +256,10 @@ function onLanguagePick(row: ArticleLanguageLink) {
       >
         <CdxIcon :icon="cdxIconLanguage" />
       </button>
-      <div v-if="isLoggedOut" class="article-header__icon-toolbar-group article-header__icon-toolbar-group--end">
+      <div
+        v-if="isLoggedOut"
+        class="article-header__icon-toolbar-group article-header__icon-toolbar-group--end"
+      >
         <button
           type="button"
           class="article-header__icon-tool"
@@ -186,14 +271,6 @@ function onLanguagePick(row: ArticleLanguageLink) {
         <button
           type="button"
           class="article-header__icon-tool"
-          aria-label="Watch"
-          @click="$emit('bookmarkClick')"
-        >
-          <CdxIcon :icon="cdxIconStar" />
-        </button>
-        <button
-          type="button"
-          class="article-header__icon-tool"
           aria-label="Edit"
           @click="$emit('editClick')"
         >
@@ -201,13 +278,15 @@ function onLanguagePick(row: ArticleLanguageLink) {
         </button>
       </div>
       <template v-else>
+        <!-- Minerva (logged in): bookmark (save page), as in production. -->
         <button
           type="button"
           class="article-header__icon-tool"
-          aria-label="Watch"
-          @click="$emit('bookmarkClick')"
+          :aria-pressed="isBookmarked"
+          :aria-label="isBookmarked ? 'Remove from saved items' : 'Save page'"
+          @click="isBookmarked = !isBookmarked"
         >
-          <CdxIcon :icon="cdxIconUnStar" />
+          <CdxIcon :icon="isBookmarked ? cdxIconBookmark : cdxIconBookmarkOutline" />
         </button>
         <button
           type="button"
@@ -280,7 +359,19 @@ function onLanguagePick(row: ArticleLanguageLink) {
       </div>
     </CdxPopover>
 
-    <p v-if="effectiveSkin === 'desktop'" class="article-header__tagline">
+    <CdxToastContainer />
+    <CdxToast
+      v-if="showSavedToast"
+      type="success"
+      auto-dismiss
+      @user-dismissed="showSavedToast = false"
+      @auto-dismissed="showSavedToast = false"
+    >
+      <strong>{{ title }}</strong> has been added to your
+      <a href="#" @click.prevent>saved items</a>.
+    </CdxToast>
+
+    <p v-if="effectiveSkin === 'desktop' && !props.mainPage" class="article-header__tagline">
       {{ DEFAULT_TAGLINE }}
     </p>
   </header>
@@ -308,6 +399,25 @@ function onLanguagePick(row: ArticleLanguageLink) {
   font-weight: var(--font-weight-normal);
   line-height: var(--line-height-xxx-small, 1.375);
   color: var(--color-base);
+}
+
+/* Visually hidden but still the page's `h1` for assistive tech (Main Page). */
+.article-header__title--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Main Page: the title row holds only the hidden heading, so the tabs lead. */
+.article-header--main-page .article-header__title-row {
+  padding: 0;
+}
+
+.article-header--main-page .article-header__toolbar {
+  border-top: none;
 }
 
 .article-header__lang-anchor {
@@ -393,15 +503,21 @@ function onLanguagePick(row: ArticleLanguageLink) {
   flex-shrink: 0;
 }
 
+/* Vector 2022 page toolbar: 32px row, 14px normal-weight tabs, 2px underline
+   on the selected tab, a base-color rule under the title and a subtle rule
+   under the toolbar. */
 .article-header__toolbar {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
   gap: var(--spacing-100, 16px);
   flex-wrap: wrap;
+  min-height: 32px;
   padding: 0;
-  border-block: 1px solid var(--border-color-subtle);
+  border-top: 1px solid var(--border-color-base, #a2a9b1);
+  border-bottom: 1px solid var(--border-color-subtle, #c8ccd1);
   margin: 0;
+  overflow: visible;
   font-family: var(--font-family-base);
   font-size: var(--font-size-small, 14px);
 }
@@ -409,39 +525,80 @@ function onLanguagePick(row: ArticleLanguageLink) {
 .article-header__tabs,
 .article-header__actions {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-75, 12px);
+  align-items: stretch;
+  gap: var(--spacing-100, 16px);
   flex-wrap: wrap;
 }
 
-.article-header__tab,
-.article-header__action {
+.article-header__actions {
+  align-items: center;
+  gap: 0 var(--spacing-100, 16px);
+}
+
+.article-header__actions .article-header__tab {
+  align-self: stretch;
+}
+
+.article-header__actions-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-50, 8px);
+}
+
+.article-header__actions-trailing .article-header__tab {
+  align-self: stretch;
+}
+
+.article-header__watch-bookmark {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Typography only — leave Codex horizontal padding untouched (Vector MenuTabs parity). */
+.article-header__actions :deep(.cdx-button:not(.cdx-button--icon-only)) {
+  font-size: var(--font-size-small, 14px);
+  font-weight: var(--font-weight-normal);
+}
+
+/* Vector 2022: bookmark overhangs the toolbar inset on the right only. */
+.article-header__bookmark {
+  margin-inline-end: calc(-1 * var(--spacing-50));
+}
+
+.article-header__tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  padding: var(--spacing-50, 8px) var(--spacing-12, 1px);
+  min-height: 32px;
+  padding: 0;
   margin: 0;
   color: var(--color-progressive);
   text-decoration: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
 }
 
-.article-header__tab:hover,
-.article-header__action:hover {
+.article-header__tab::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 2px;
+  background-color: transparent;
+}
+
+.article-header__tab:hover {
   text-decoration: underline;
 }
 
-.article-header__tab--active,
-.article-header__action--active {
+.article-header__tab--active {
   color: var(--color-base);
-  font-weight: var(--font-weight-bold);
-  border-bottom-color: var(--color-base);
+}
+
+.article-header__tab--active:hover {
   text-decoration: none;
 }
 
-.article-header__icon-btn {
-  margin-inline-start: var(--spacing-25, 2px);
-  color: var(--color-base);
+.article-header__tab--active::after {
+  background-color: var(--color-base);
 }
 
 .article-header__tagline {
@@ -512,6 +669,13 @@ function onLanguagePick(row: ArticleLanguageLink) {
   font-size: 1.625rem;
 }
 
+/* Logged-in Main Page greeting: GrowthExperiments' 1.7em serif Homepage title. */
+.article-header[data-skin='mobile'] .article-header__title--greeting {
+  margin-bottom: var(--spacing-75, 12px);
+  font-size: 1.7rem;
+  line-height: 1.375;
+}
+
 .article-header[data-skin='mobile'] .article-header__title-row {
   padding-bottom: 0;
 }
@@ -544,7 +708,10 @@ function onLanguagePick(row: ArticleLanguageLink) {
 
 .article-header[data-skin='mobile'] .article-header__tab--active {
   color: var(--color-subtle);
-  border-bottom-color: var(--color-subtle);
   font-weight: var(--font-weight-bold);
+}
+
+.article-header[data-skin='mobile'] .article-header__tab--active::after {
+  background-color: var(--color-subtle);
 }
 </style>

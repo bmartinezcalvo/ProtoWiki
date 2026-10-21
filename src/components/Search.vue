@@ -9,10 +9,10 @@ import {
 import { wikimediaApiFetchHeaders, wikiHostFromLang } from '@/config'
 import type { Skin, Theme } from '@/theme'
 
-/** Payload for the `submit` event (Enter / search button without a highlighted result). */
+/** Payload for the `submit` event (Enter / search button without a row pick). */
 export interface SearchSubmitPayload {
   query: string
-  /** First typeahead suggestion when results exist for the current query. */
+  /** First typeahead suggestion when results exist for the current fetch query. */
   title?: string
 }
 
@@ -40,8 +40,8 @@ interface Emits {
   /** Emitted when a suggestion is selected. Carries the page title. */
   (event: 'select', title: string): void
   /**
-   * Emitted when the user submits the search (Enter / search button).
-   * Includes the first suggestion title when the typeahead list is populated.
+   * Emitted when the user submits the search (Enter / search button) and the
+   * first suggestion is used. Keyboard-highlighted rows emit `select` instead.
    */
   (event: 'submit', payload: SearchSubmitPayload): void
 }
@@ -120,14 +120,50 @@ function suggestionsMatchQuery(query: string): boolean {
   return query.length > 0 && suggestionsQuery.value === query
 }
 
-function openFirstSuggestion(query: string): boolean {
-  if (!suggestionsMatchQuery(query)) return false
+/** Opensearch term we fetched (or should fetch) for — not the label Codex copies on arrow keys. */
+function searchTermForFetch(): string {
+  const fromSuggestions = suggestionsQuery.value.trim()
+  if (fromSuggestions) return fromSuggestions
+  const fromLast = lastQuery.value.trim()
+  if (fromLast) return fromLast
+  return currentInputQuery()
+}
 
-  const title = firstSuggestionTitle()
-  if (!title) return false
+interface EnterSuggestionResolution {
+  title: string
+  /** Input exactly matches a suggestion row (keyboard highlight). */
+  pickedHighlightedRow: boolean
+}
 
-  completeSearchInput(title)
-  emit('submit', { query, title })
+function resolveSuggestionTitleForEnter(): EnterSuggestionResolution | undefined {
+  const fetchQuery = suggestionsQuery.value.trim()
+  if (!fetchQuery.length || suggestions.value.length === 0) return undefined
+
+  const input = currentInputQuery()
+  const matchedRow = suggestions.value.find((s) => resultTitle(s) === input)
+  if (matchedRow) {
+    const title = resultTitle(matchedRow)
+    if (title) return { title, pickedHighlightedRow: true }
+  }
+
+  const first = firstSuggestionTitle()
+  if (first) return { title: first, pickedHighlightedRow: false }
+  return undefined
+}
+
+function confirmSuggestionEnter(): boolean {
+  const fetchQuery = suggestionsQuery.value.trim()
+  if (!fetchQuery || !suggestionsMatchQuery(fetchQuery)) return false
+
+  const resolved = resolveSuggestionTitleForEnter()
+  if (!resolved) return false
+
+  clearSearchInput()
+  if (resolved.pickedHighlightedRow) {
+    emit('select', resolved.title)
+  } else {
+    emit('submit', { query: fetchQuery, title: resolved.title })
+  }
   return true
 }
 
@@ -140,16 +176,26 @@ function blurSearchInput(): void {
   typeahead.form?.querySelector('input')?.blur()
 }
 
-function completeSearchInput(title: string): void {
+/**
+ * A pick navigates to the article, so the box empties — as in production,
+ * where the new page loads with a blank search.
+ */
+function clearSearchInput(): void {
+  abortController?.abort()
+  suggestions.value = []
+  suggestionsQuery.value = ''
+  lastQuery.value = ''
+
   const typeahead = typeaheadRef.value
   if (!typeahead) return
 
-  typeahead.inputValue = title
+  typeahead.inputValue = ''
   blurSearchInput()
 }
 
 function resolvePendingSubmit(query: string): void {
-  openFirstSuggestion(query)
+  if (!suggestionsMatchQuery(query)) return
+  confirmSuggestionEnter()
 }
 
 /** Title suggestions from opensearch, enriched with descriptions and thumbnails. */
@@ -300,25 +346,29 @@ function onSearchResultClick(payload: SearchResultClickEvent) {
   if (!title) return
 
   pendingSubmitQuery = null
-  completeSearchInput(title)
+  clearSearchInput()
   emit('select', title)
 }
 
 function onSubmit(_payload: SearchResultClickEvent) {
-  const query = currentInputQuery()
-  if (!query) return
+  const fetchTerm = searchTermForFetch()
+  if (!currentInputQuery() && !fetchTerm) return
 
-  // Codex debounces `@input` — Enter may arrive before our fetch starts.
-  if (query !== lastQuery.value.trim()) {
-    void onInput(typeaheadRef.value?.inputValue ?? query)
-  }
-
-  if (openFirstSuggestion(query)) {
+  if (confirmSuggestionEnter()) {
     pendingSubmitQuery = null
     return
   }
 
-  pendingSubmitQuery = query
+  if (!fetchTerm) return
+
+  const hasSuggestionsForTerm = suggestionsMatchQuery(fetchTerm)
+
+  // Codex debounces `@input` — Enter may arrive before our fetch starts.
+  if (!hasSuggestionsForTerm) {
+    void onInput(fetchTerm)
+  }
+
+  pendingSubmitQuery = fetchTerm
 }
 </script>
 

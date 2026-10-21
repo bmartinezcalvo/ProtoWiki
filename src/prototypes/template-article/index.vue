@@ -3,8 +3,8 @@ import { cdxIconArticle } from '@wikimedia/codex-icons'
 
 definePage({
   meta: {
-    title: 'Article (live)',
-    description: "Template for an article page that's loaded from live data.",
+    title: 'Article',
+    description: 'Template for prototyping the article page.',
     category: 'template',
     platform: 'web',
     order: 2,
@@ -12,28 +12,39 @@ definePage({
   },
 })
 
-import { ref } from 'vue'
+import { computed } from 'vue'
 
 import ArticleLive from '@/components/article/ArticleLive.vue'
 import ChromeWrapper from '@/components/chrome/ChromeWrapper.vue'
 import { provideChromeSearchHandlers } from '@/composables/useChromeSearch'
+import { useWikiPageTitleQuery } from '@/composables/useWikiPageTitleQuery'
 
-const selectedArticle = ref<string | undefined>(undefined)
+const { titleFromQuery, setWikiPageTitle } = useWikiPageTitleQuery()
 
-// Header search is wired via provide — see `useChromeSearch.ts`.
+/** Fixed title from `?title=`; omit prop for random article when absent. */
+const article = computed(() => titleFromQuery.value)
+
 provideChromeSearchHandlers({
   onSelect(title) {
-    selectedArticle.value = title
+    if (title?.trim()) setWikiPageTitle(title)
   },
   onSubmit({ title }) {
-    if (title) selectedArticle.value = title
+    if (title) setWikiPageTitle(title)
   },
 })
+
+function onTitleResolved(title: string) {
+  if (title?.trim()) setWikiPageTitle(title)
+}
 </script>
 
 <template>
   <ChromeWrapper>
-    <ArticleLive :article="selectedArticle" />
+    <ArticleLive
+      edit-route="/template-visual-editor"
+      :article="article"
+      @title-resolved="onTitleResolved"
+    />
 
     <!-- Draw from Wikipedia's Vital articles instead of a purely random page: -->
     <!-- <ArticleLive source="vital" /> -->
