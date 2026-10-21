@@ -10,17 +10,17 @@ chrome-without-the-wrapper (e.g., a custom layout that doesn't use
 **`ChromeHeader`** delegates to **`VectorChromeHeader`** (desktop skin)
 or **`MinervaChromeHeader`** (mobile skin) based on effective skin:
 
-| Skin | Component | Chrome feel | Notes |
-| --- | --- | --- | --- |
-| `desktop` | **`VectorChromeHeader`** | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). When **`prototypingSettings`** (default **`true`**) and logged in, **appearance** opens web appearance settings (no App OS) and **user** opens mock user settings; wordmarks link to **`/template-main-page`** (no **`?title=`**; appearance query preserved — see **`useWordmarkMainPageLink`**). Main-menu glyph is icon-only (mock) unless **`#menu`** overrides. Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon that opens the search box in place of the menu and wordmark, as in production: it ends where the icon was and fills the space to its left (Escape or blur folds it back). |
-| `mobile` | **`MinervaChromeHeader`** | **Minerva-style** | Grey elevated bar: menu · wordmark · search + notifications + user — the default search button opens a full-screen **`MobileSearchOverlay`**. Prop-driven **`left`** / **`middle`** / **`right`** item arrays. Default user control opens mock user settings when **`prototypingSettings`**; default wordmark links to the **Main Page** when **`prototypingSettings`**. **`navTools`** is ignored. |
+| Skin      | Component                 | Chrome feel           | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------- | ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `desktop` | **`VectorChromeHeader`**  | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). When **`prototypingSettings`** (default **`true`**) and logged in, **appearance** opens web appearance settings (no App OS) and **user** opens mock user settings; wordmarks link to **`/template-main-page`** (no **`?title=`**; appearance query preserved — see **`useWordmarkMainPageLink`**). Main-menu glyph is icon-only (mock) unless **`#menu`** overrides. Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon that opens the search box in place of the menu and wordmark, as in production: it ends where the icon was and fills the space to its left (Escape or blur folds it back). |
+| `mobile`  | **`MinervaChromeHeader`** | **Minerva-style**     | Grey elevated bar: menu · wordmark · search + notifications + user — the default search button opens a full-screen **`MobileSearchOverlay`**. Prop-driven **`left`** / **`middle`** / **`right`** item arrays. Default user control opens mock user settings when **`prototypingSettings`**; default wordmark links to the **Main Page** when **`prototypingSettings`**. **`navTools`** is ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 **`ChromeFooter`** matches the skin:
 
 - **`desktop`** — Vector-ish reader strip (muted top border on the inner block). When **`lastEditedNotice`**:
   1. Mock line: **“This page was last edited on …”**
   2. Mock **CC BY-SA** licence blurb + Terms / Privacy / Foundation sentence (article-style metadata)
-  Then the prototype note and bullet links.
+     Then the prototype note and bullet links.
 - **`mobile`** — Minerva-ish stack (see `ChromeFooter.vue`):
   1. Optional **mock “Last edited … by …”** row — driven by **`username`** (forwarded from **`ChromeWrapper`**) with **`lastEditedNotice`**; when hidden, the grey well gains a compensating **top border** so the footer still attaches cleanly.
   2. Grey **well**: wordmark, Wikimedia/MediaWiki badge buttons, divider, short licence line, middot-linked footer rows.
@@ -33,19 +33,19 @@ Public skin-aware delegator — import directly or use via **`ChromeWrapper`'s**
 
 ### Props
 
-| Prop | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `skin` | `'desktop' \| 'mobile'` | `undefined` | Local skin override; falls back to global `useSkin()` |
-| `theme` | `'light' \| 'dark'` | `undefined` | Local theme override; falls back to global `useTheme()` |
-| `username` | `string` | `'Username'` | **Desktop:** Meta link mock before tool icons; trimmed; **`''`** hides unless **`#username`** overrides |
-| `wordmarkSrc` | `string` | EN CDN SVG | Desktop wordmark **`#logo`** (+ Minerva fallback when **`mobileWordmarkSrc`** omitted) |
-| `taglineSrc` | `string` | EN CDN SVG | Desktop tagline **`#logo`** stack |
-| `mobileWordmarkSrc` | `string` | **`wordmarkSrc`** then EN CDN | Minerva bar wordmark when **`middle`** is omitted |
-| `navTools` | `ChromeNavTool[]` | full set | **Desktop only** — which Vector tool icons render; **`#nav`** replaces cluster |
-| `left` | `HeaderItem[]` | Minerva default | **Mobile only** — override Minerva **`left`** region |
-| `middle` | `HeaderItem[]` | built-in wordmark | **Mobile only** — override Minerva **`middle`** region |
-| `right` | `HeaderItem[]` | Minerva default | **Mobile only** — override Minerva **`right`** region |
-| `prototypingSettings` | `boolean` | `true` | **Both skins:** when **`true`**, default appearance/user tools open prototyping popovers and wordmarks link to the **Main Page**; when **`false`**, those controls stay mock-only and wordmarks are static |
+| Prop                  | Type                    | Default                       | Notes                                                                                                                                                                                                      |
+| --------------------- | ----------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skin`                | `'desktop' \| 'mobile'` | `undefined`                   | Local skin override; falls back to global `useSkin()`                                                                                                                                                      |
+| `theme`               | `'light' \| 'dark'`     | `undefined`                   | Local theme override; falls back to global `useTheme()`                                                                                                                                                    |
+| `username`            | `string`                | `'Username'`                  | **Desktop:** Meta link mock before tool icons; trimmed; **`''`** hides unless **`#username`** overrides                                                                                                    |
+| `wordmarkSrc`         | `string`                | EN CDN SVG                    | Desktop wordmark **`#logo`** (+ Minerva fallback when **`mobileWordmarkSrc`** omitted)                                                                                                                     |
+| `taglineSrc`          | `string`                | EN CDN SVG                    | Desktop tagline **`#logo`** stack                                                                                                                                                                          |
+| `mobileWordmarkSrc`   | `string`                | **`wordmarkSrc`** then EN CDN | Minerva bar wordmark when **`middle`** is omitted                                                                                                                                                          |
+| `navTools`            | `ChromeNavTool[]`       | full set                      | **Desktop only** — which Vector tool icons render; **`#nav`** replaces cluster                                                                                                                             |
+| `left`                | `HeaderItem[]`          | Minerva default               | **Mobile only** — override Minerva **`left`** region                                                                                                                                                       |
+| `middle`              | `HeaderItem[]`          | built-in wordmark             | **Mobile only** — override Minerva **`middle`** region                                                                                                                                                     |
+| `right`               | `HeaderItem[]`          | Minerva default               | **Mobile only** — override Minerva **`right`** region                                                                                                                                                      |
+| `prototypingSettings` | `boolean`               | `true`                        | **Both skins:** when **`true`**, default appearance/user tools open prototyping popovers and wordmarks link to the **Main Page**; when **`false`**, those controls stay mock-only and wordmarks are static |
 
 `HeaderItem` matches **`AppChromeHeader`** (`link` / `button` / `component` / `title` with kebab-case icon names).
 
@@ -57,13 +57,13 @@ Desktop **inline search** is always **`<Search />`** inside **`VectorChromeHeade
 
 ### Slots
 
-| Slot | Skin | Default | Use for |
-| --- | --- | --- | --- |
-| `#menu` | both | menu button / icon | Replace main-menu control (**`ChromeWrapper`** forwards this) |
-| `#logo` | both | EN Wikipedia wordmark (+ tagline on desktop) | Replace wordmark / lockup |
-| `#username` | desktop | Anchor from **`username`** | Replace markup before tool icons |
-| `#nav` | desktop | Vector tool icons | Replace user-tool cluster (**`navTools`** ignored) |
-| `#user-menu` | desktop | User avatar + caret (or prototyping popover) | Replace only the user-menu control |
+| Slot         | Skin    | Default                                      | Use for                                                       |
+| ------------ | ------- | -------------------------------------------- | ------------------------------------------------------------- |
+| `#menu`      | both    | menu button / icon                           | Replace main-menu control (**`ChromeWrapper`** forwards this) |
+| `#logo`      | both    | EN Wikipedia wordmark (+ tagline on desktop) | Replace wordmark / lockup                                     |
+| `#username`  | desktop | Anchor from **`username`**                   | Replace markup before tool icons                              |
+| `#nav`       | desktop | Vector tool icons                            | Replace user-tool cluster (**`navTools`** ignored)            |
+| `#user-menu` | desktop | User avatar + caret (or prototyping popover) | Replace only the user-menu control                            |
 
 ### Example
 
@@ -98,11 +98,11 @@ import MinervaChromeHeader from '@/components/chrome/MinervaChromeHeader.vue'
 import type { MinervaHeaderItem } from '@/components/chrome/MinervaChromeHeader.vue'
 ```
 
-| Region | Default |
-| --- | --- |
-| `left` | menu button |
-| `middle` | Wikipedia wordmark (`RouterLink` to **`/template-main-page`** when **`prototypingSettings`**, else static) when **`middle`** omitted |
-| `right` | search (opens **`MobileSearchOverlay`**), notifications, user avatar (mock user settings popover when **`prototypingSettings`**, unless **`ChromeHeader`** **`#user-menu`** or **`right`** overrides) |
+| Region   | Default                                                                                                                                                                                               |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `left`   | menu button                                                                                                                                                                                           |
+| `middle` | Wikipedia wordmark (`RouterLink` to **`/template-main-page`** when **`prototypingSettings`**, else static) when **`middle`** omitted                                                                  |
+| `right`  | search (opens **`MobileSearchOverlay`**), notifications, user avatar (mock user settings popover when **`prototypingSettings`**, unless **`ChromeHeader`** **`#user-menu`** or **`right`** overrides) |
 
 Passing your own **`right`** replaces the default search button, so the overlay goes with it — bring your own search.
 
@@ -114,17 +114,17 @@ Props: **`theme?`**, **`left?`**, **`middle?`**, **`right?`**, **`wordmarkSrc?`*
 
 ### Props
 
-| Prop | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `skin` | `'desktop' \| 'mobile'` | `undefined` | |
-| `theme` | `'light' \| 'dark'` | `undefined` | |
-| `lastEditedNotice` | `boolean` | `true` | Mock last-edited **notice** — **`false`** hides it on **both** skins (**`ChromeWrapper`** forwards this). |
-| `username` | `string` | `'Username'` | Mobile “last edited … by …” line — **`ChromeWrapper`** forwards it |
+| Prop               | Type                    | Default      | Notes                                                                                                     |
+| ------------------ | ----------------------- | ------------ | --------------------------------------------------------------------------------------------------------- |
+| `skin`             | `'desktop' \| 'mobile'` | `undefined`  |                                                                                                           |
+| `theme`            | `'light' \| 'dark'`     | `undefined`  |                                                                                                           |
+| `lastEditedNotice` | `boolean`               | `true`       | Mock last-edited **notice** — **`false`** hides it on **both** skins (**`ChromeWrapper`** forwards this). |
+| `username`         | `string`                | `'Username'` | Mobile “last edited … by …” line — **`ChromeWrapper`** forwards it                                        |
 
 ### Slots
 
-| Slot | Default | Use for |
-| --- | --- | --- |
+| Slot    | Default                                                | Use for                   |
+| ------- | ------------------------------------------------------ | ------------------------- |
 | default | Desktop strip or Minerva well (see skin section above) | Replace the entire footer |
 
 ### Example

@@ -30,8 +30,14 @@ Inside **`ChromeWrapper`**, prototypes can opt in without forking the header:
 import { provideChromeSearchHandlers } from '@/composables/useChromeSearch'
 
 provideChromeSearchHandlers({
-  onSelect(title) { /* … */ },
-  onSubmit({ title }) { if (title) { /* … */ } },
+  onSelect(title) {
+    /* … */
+  },
+  onSubmit({ title }) {
+    if (title) {
+      /* … */
+    }
+  },
 })
 ```
 
@@ -44,23 +50,23 @@ into **`ArticleLive`**.
 
 ## Props
 
-| Prop | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `host` | `string` | `'en.wikipedia.org'` | Wiki host the opensearch hits — also picks the language |
-| `placeholder` | `string` | `'Search Wikipedia'` | Input placeholder + a11y label |
-| `limit` | `number` | `10` | Max suggestions returned |
-| `useButton` | `boolean` | `false` | Integrated submit button (Vector inline search) |
-| `autoExpandWidth` | `boolean` | `false` | Widen input on focus when thumbnails are shown |
-| `skin` | `'desktop' \| 'mobile'` | `undefined` | |
-| `theme` | `'light' \| 'dark'` | `undefined` | |
+| Prop              | Type                    | Default              | Notes                                                   |
+| ----------------- | ----------------------- | -------------------- | ------------------------------------------------------- |
+| `host`            | `string`                | `'en.wikipedia.org'` | Wiki host the opensearch hits — also picks the language |
+| `placeholder`     | `string`                | `'Search Wikipedia'` | Input placeholder + a11y label                          |
+| `limit`           | `number`                | `10`                 | Max suggestions returned                                |
+| `useButton`       | `boolean`               | `false`              | Integrated submit button (Vector inline search)         |
+| `autoExpandWidth` | `boolean`               | `false`              | Widen input on focus when thumbnails are shown          |
+| `skin`            | `'desktop' \| 'mobile'` | `undefined`          |                                                         |
+| `theme`           | `'light' \| 'dark'`     | `undefined`          |                                                         |
 
 `lang` / `dir` are inherited from the surrounding wrapper.
 
 ## Events
 
-| Event | Payload | Fired when |
-| --- | --- | --- |
-| `select` | `string` (title) | User clicks / picks a suggestion |
+| Event    | Payload                             | Fired when                                                                                                                                      |
+| -------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `select` | `string` (title)                    | User clicks / picks a suggestion                                                                                                                |
 | `submit` | `{ query: string; title?: string }` | User presses Enter or clicks the search icon without a highlighted result; `title` is the first suggestion when the typeahead list is populated |
 
 ## Behaviour
