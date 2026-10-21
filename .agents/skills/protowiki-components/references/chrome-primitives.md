@@ -12,8 +12,8 @@ or **`MinervaChromeHeader`** (mobile skin) based on effective skin:
 
 | Skin | Component | Chrome feel | Notes |
 | --- | --- | --- | --- |
-| `desktop` | **`VectorChromeHeader`** | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). When **`prototypingSettings`** (default **`true`**) and logged in, **appearance** opens web appearance settings (no App OS) and **user** opens mock user settings; wordmarks link to **`/template-main-page`** (no **`?title=`**; appearance query preserved — see **`useWordmarkMainPageLink`**). Main-menu glyph is icon-only (mock) unless **`#menu`** overrides. Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon. |
-| `mobile` | **`MinervaChromeHeader`** | **Minerva-style** | Grey elevated bar: menu · wordmark · search + notifications + user — prop-driven **`left`** / **`middle`** / **`right`** item arrays. Default user control opens mock user settings when **`prototypingSettings`**; default wordmark links to the **Main Page** when **`prototypingSettings`**. **`navTools`** is ignored. |
+| `desktop` | **`VectorChromeHeader`** | **Vector 2022–style** | Wordmark/tagline (**`wordmarkSrc`**, **`taglineSrc`**, **`#logo`**), **`Search`** + **Search** button, username link (**`username`** + **`#username`**), user-tool cluster (**`navTools`** vs **`#nav`**: appearance, notifications, notices, bookmarks, watchlist, user + chevron). When **`prototypingSettings`** (default **`true`**) and logged in, **appearance** opens web appearance settings (no App OS) and **user** opens mock user settings; wordmarks link to **`/template-main-page`** (no **`?title=`**; appearance query preserved — see **`useWordmarkMainPageLink`**). Main-menu glyph is icon-only (mock) unless **`#menu`** overrides. Global skin stays **desktop** until viewport **≤640px**; below **1120px** inline search collapses to a search icon that opens the search box in place of the menu and wordmark, as in production: it ends where the icon was and fills the space to its left (Escape or blur folds it back). |
+| `mobile` | **`MinervaChromeHeader`** | **Minerva-style** | Grey elevated bar: menu · wordmark · search + notifications + user — the default search button opens a full-screen **`MobileSearchOverlay`**. Prop-driven **`left`** / **`middle`** / **`right`** item arrays. Default user control opens mock user settings when **`prototypingSettings`**; default wordmark links to the **Main Page** when **`prototypingSettings`**. **`navTools`** is ignored. |
 
 **`ChromeFooter`** matches the skin:
 
@@ -102,7 +102,9 @@ import type { MinervaHeaderItem } from '@/components/chrome/MinervaChromeHeader.
 | --- | --- |
 | `left` | menu button |
 | `middle` | Wikipedia wordmark (`RouterLink` to **`/template-main-page`** when **`prototypingSettings`**, else static) when **`middle`** omitted |
-| `right` | search, notifications, user avatar (mock user settings popover when **`prototypingSettings`**, unless **`ChromeHeader`** **`#user-menu`** or **`right`** overrides) |
+| `right` | search (opens **`MobileSearchOverlay`**), notifications, user avatar (mock user settings popover when **`prototypingSettings`**, unless **`ChromeHeader`** **`#user-menu`** or **`right`** overrides) |
+
+Passing your own **`right`** replaces the default search button, so the overlay goes with it — bring your own search.
 
 Adjacent icon buttons/links in **`left`** and **`right`** have **no gap** between them (flush groups).
 

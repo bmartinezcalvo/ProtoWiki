@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { CdxButton, CdxIcon } from '@wikimedia/codex'
 
 import { resolveHeaderIcon } from '@/components/header/headerIcons'
 import type { HeaderItem } from '@/components/header/headerItems'
+import MobileSearchOverlay from '@/components/search/MobileSearchOverlay.vue'
 import { MINERVA_DEFAULT_RIGHT } from './minervaHeaderDefaults'
 import { useWordmarkMainPageLink } from '@/composables/useWordmarkMainPageLink'
 import { globalTheme } from '@/theme'
@@ -19,6 +20,16 @@ const MAX_FLANK_ITEMS = 4
 
 const DEFAULT_LEFT: HeaderItem[] = [{ type: 'button', icon: 'menu', label: 'Main menu' }]
 
+/** Default search opens Minerva's full-screen overlay unless `right` overrides it. */
+const searchOpen = ref(false)
+
+function withDefaultSearchHandler(items: HeaderItem[]): HeaderItem[] {
+  return items.map((item) =>
+    item.type === 'button' && item.icon === 'search' && !item.onClick
+      ? { ...item, onClick: () => (searchOpen.value = true) }
+      : item,
+  )
+}
 
 interface Props {
   theme?: Theme
@@ -59,7 +70,9 @@ function clampFlank(items: HeaderItem[], side: 'left' | 'right'): HeaderItem[] {
 }
 
 const effectiveLeft = computed(() => clampFlank(props.left ?? DEFAULT_LEFT, 'left'))
-const effectiveRight = computed(() => clampFlank(props.right ?? MINERVA_DEFAULT_RIGHT, 'right'))
+const effectiveRight = computed(() =>
+  clampFlank(withDefaultSearchHandler(props.right ?? MINERVA_DEFAULT_RIGHT), 'right'),
+)
 const effectiveMiddle = computed(() => props.middle ?? [])
 
 const useDefaultWordmark = computed(() => props.middle === undefined)
@@ -220,6 +233,8 @@ function isExternalHref(href: string): boolean {
       </div>
     </nav>
   </header>
+
+  <MobileSearchOverlay v-if="searchOpen" :theme="effectiveTheme" @close="searchOpen = false" />
 </template>
 
 <style scoped>
