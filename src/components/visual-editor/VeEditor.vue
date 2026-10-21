@@ -524,6 +524,34 @@ const pillColumn = ref<{ left: string; width: string }>({ left: '0px', width: '3
 const anyInView = ref(true)
 const seenOnMobile = ref(false)
 const bannerDismissed = ref(false)
+/**
+ * Discoverability: after Dismiss or Complete, "View suggestions" waits
+ * PILL_DELAY_MS (after the success state, for Complete) instead of popping up.
+ */
+const PILL_DELAY_MS = 1000
+const pillHeld = ref(false)
+let pillHoldTimer: ReturnType<typeof setTimeout> | undefined
+let pillHeldForPublishPath = false
+
+function holdPill(ms: number) {
+  if (!discoverability) return
+  clearTimeout(pillHoldTimer)
+  pillHeldForPublishPath = false
+  pillHeld.value = true
+  pillHoldTimer = setTimeout(() => (pillHeld.value = false), ms)
+}
+
+function holdPillUntilPublishPathCloses() {
+  if (!discoverability) return
+  clearTimeout(pillHoldTimer)
+  pillHeld.value = true
+  pillHeldForPublishPath = true
+}
+
+watch(publishPathId, (id) => {
+  if (!id && pillHeldForPublishPath) holdPill(PILL_DELAY_MS)
+})
+
 /** First pending suggestion whose highlight is in the viewport (discoverability nudges). */
 const firstVisibleId = ref<string | null>(null)
 /** Every pending suggestion in the viewport, in document order. */
@@ -836,6 +864,7 @@ function complete(f: Finding, message?: string) {
     // `showPublishPath`: once, for the first completed suggestion.
     publishPathShown = true
     publishPathId.value = f.id
+    holdPillUntilPublishPathCloses()
     if (isMobile.value) {
       closeSheet()
       setTimeout(() => openPublishPathSheet(f), 500)
@@ -843,6 +872,7 @@ function complete(f: Finding, message?: string) {
   } else {
     successTitles.set(f.id, message ?? (isSuggestion ? STR.successSuggestion : STR.successCheck))
     successIds.add(f.id)
+    holdPill(2000 + PILL_DELAY_MS)
     setTimeout(() => {
       successIds.delete(f.id)
       scheduleLayout()
@@ -854,6 +884,7 @@ function complete(f: Finding, message?: string) {
 
 function dismiss(f: Finding) {
   if (f.type === 'tone' && f.data?.block) dismissedToneBlocks.add(f.data.block)
+  holdPill(isMobile.value && !review.value ? 260 + PILL_DELAY_MS : PILL_DELAY_MS)
   if (isMobile.value && !review.value) {
     dismissingId.value = f.id
     setTimeout(() => {
@@ -1399,6 +1430,7 @@ onBeforeUnmount(() => {
   clearTimeout(layoutTimer)
   clearTimeout(idleTimer)
   clearInterval(cardBounceTimer)
+  clearTimeout(pillHoldTimer)
 })
 
 watch(displayed, () => scheduleLayout())
@@ -1799,7 +1831,7 @@ const titleFor = (f: Finding) =>
 
         <!-- View suggestions -->
         <div
-          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen"
+          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld"
           class="ve-view-pill-wrap"
           :class="{ 've-view-pill-wrap--up': offscreenDirection === 'up' }"
           :style="pillColumn"
@@ -1825,7 +1857,7 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: View suggestions banner -->
     <div
-      v-if="isMobile && !review && suggestionsOn && !detecting && !sheetOpen && (onlyElsewhere || (pendingDisplayed.length && (discoverability ? !anyInView : !seenOnMobile))) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen"
+      v-if="isMobile && !review && suggestionsOn && !detecting && !sheetOpen && (onlyElsewhere || (pendingDisplayed.length && (discoverability ? !anyInView : !seenOnMobile))) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld"
       class="ve-mobile-banner"
     >
       <div
