@@ -131,7 +131,7 @@ const shortfall = computed(
 
       <CdxField>
         <CdxToggleSwitch v-model="suggestionSettings.firstTime" :disabled="subControlsDisabled"
-          >First time using Suggestion Mode</CdxToggleSwitch
+          >First time using suggestion mode</CdxToggleSwitch
         >
         <template #help-text>
           On desktop, suggestions start turned off until the editor turns them on. On mobile they're
