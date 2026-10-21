@@ -17,9 +17,8 @@ export interface SuggestionSettings {
   limit: number | null
   types: Record<SuggestionTypeId, boolean>
   /**
-   * First time in Suggestion Mode (`firstTime` true): production starts the desktop
-   * toggle off until the editor turns it on once. Exposed as “First time using
-   * Suggestion Mode” in Suggestion mode settings. Mobile always starts with suggestions visible.
+   * First time in Suggestion Mode. Exposed as “First time using suggestion mode”
+   * in Suggestion mode settings. Suggestions start on regardless (desktop and mobile).
    */
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
@@ -61,6 +60,8 @@ function load(): SuggestionSettings {
     return {
       ...base,
       ...rest,
+      // The master switch is no longer exposed in the settings; always on.
+      enabled: true,
       types: { ...base.types, ...(rest?.types ?? {}) },
     }
   } catch {

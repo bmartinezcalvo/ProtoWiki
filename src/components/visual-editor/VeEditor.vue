@@ -129,12 +129,10 @@ const dismissedToneBlocks = new WeakSet<Element>()
 const modeEnabled = computed(() => suggestionSettings.enabled)
 
 function initialSuggestionsOn(): boolean {
-  if (!suggestionSettings.enabled) return false
-  if (isMobile.value) return true
-  return suggestionSettings.firstTime ? false : suggestionSettings.rememberedToggle
+  return suggestionSettings.enabled
 }
 
-/** Desktop: production remembers the toggle; first-timers start with it off. Mobile: always on. */
+/** Suggestions start on, on desktop and mobile, for every editor. */
 const suggestionsOn = ref(initialSuggestionsOn())
 
 function isLive(f: Finding): boolean {
