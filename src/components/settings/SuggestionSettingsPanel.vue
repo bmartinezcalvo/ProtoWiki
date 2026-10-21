@@ -47,14 +47,6 @@ const shortfall = computed(
     props.detectedCount != null &&
     props.detectedCount < suggestionSettings.limit,
 )
-
-/** Inverse of `suggestionSettings.firstTime` (production user option after first enable). */
-const hasTurnedOnSuggestionMode = computed({
-  get: () => !suggestionSettings.firstTime,
-  set: (on: boolean) => {
-    suggestionSettings.firstTime = !on
-  },
-})
 </script>
 
 <template>
@@ -93,7 +85,7 @@ const hasTurnedOnSuggestionMode = computed({
     </CdxField>
 
     <CdxField>
-      <CdxToggleSwitch v-model="hasTurnedOnSuggestionMode">User has turned on Suggestion Mode</CdxToggleSwitch>
+      <CdxToggleSwitch v-model="suggestionSettings.firstTime">First time using Suggestion Mode</CdxToggleSwitch>
       <template #help-text>
         On desktop, suggestions start turned off until the editor turns them on. On mobile they're always on.
       </template>

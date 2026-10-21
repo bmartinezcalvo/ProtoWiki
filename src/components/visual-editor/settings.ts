@@ -16,8 +16,8 @@ export interface SuggestionSettings {
   types: Record<SuggestionTypeId, boolean>
   /**
    * First time in Suggestion Mode (`firstTime` true): production starts the desktop
-   * toggle off until the editor turns it on once. Edited as “Has turned on Suggestion
-   * Mode” in Suggestion Mode settings. Mobile always starts with suggestions visible.
+   * toggle off until the editor turns it on once. Exposed as “First time using
+   * Suggestion Mode” in Suggestion Mode settings. Mobile always starts with suggestions visible.
    */
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
