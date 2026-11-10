@@ -37,7 +37,7 @@ export interface SuggestionSettings {
  * hidden here, so the experiment, "First time using suggestion mode" and the
  * suggestion types / count always use these defaults (stored values ignored).
  */
-const EXPERIMENT: SuggestionSettings['experiment'] = 1
+const EXPERIMENT: SuggestionSettings['experiment'] = 2
 
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
 
