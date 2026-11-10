@@ -32,6 +32,13 @@ export interface SuggestionSettings {
   experiment: 1 | 2
 }
 
+/**
+ * Discoverability experiment this branch is built for. Mock settings are
+ * hidden here, so the experiment, "First time using suggestion mode" and the
+ * suggestion types / count always use these defaults (stored values ignored).
+ */
+const EXPERIMENT: SuggestionSettings['experiment'] = 1
+
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
 
 function defaults(): SuggestionSettings {
@@ -45,7 +52,7 @@ function defaults(): SuggestionSettings {
     firstTime: true,
     rememberedToggle: true,
     hideBeforeYouGo: false,
-    experiment: 1,
+    experiment: EXPERIMENT,
   }
 }
 
@@ -71,7 +78,11 @@ function load(): SuggestionSettings {
       ...rest,
       // The master switch is no longer exposed in the settings; always on.
       enabled: true,
-      types: { ...base.types, ...(rest?.types ?? {}) },
+      // Not exposed on this branch (Mock settings hidden): always the defaults.
+      experiment: base.experiment,
+      firstTime: base.firstTime,
+      limit: base.limit,
+      types: base.types,
     }
   } catch {
     return base

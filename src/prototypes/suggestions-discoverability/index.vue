@@ -34,7 +34,7 @@ function onTitleResolved(title: string) {
 </script>
 
 <template>
-  <ChromeWrapper>
+  <ChromeWrapper :prototyping-settings="false">
     <ArticleLive
       v-model:editing="editing"
       editable
