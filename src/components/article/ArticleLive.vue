@@ -253,7 +253,12 @@ function isAbortError(err: unknown): boolean {
 
 if (showsSuggestionsIndicator.value) {
   provide(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, {
-    show: computed(() => !editing.value && (prefetchSuggestionCount.value ?? 0) > 0),
+    show: computed(
+      () =>
+        suggestionSettings.experiment === 1 &&
+        !editing.value &&
+        (prefetchSuggestionCount.value ?? 0) > 0,
+    ),
     pulse: computed(() => suggestionSettings.firstTime),
     sections: computed(() => prefetchSuggestionSections.value),
   })

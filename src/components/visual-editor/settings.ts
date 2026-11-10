@@ -25,9 +25,14 @@ export interface SuggestionSettings {
   rememberedToggle: boolean
   /** "Don't show this again" ticked in "Before you go" (discoverability). */
   hideBeforeYouGo: boolean
+  /**
+   * Discoverability experiment. `1`: lightbulb badge on the read-mode Edit
+   * buttons. `2`: no read-mode badge.
+   */
+  experiment: 1 | 2
 }
 
-const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
+const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
 
 function defaults(): SuggestionSettings {
   return {
@@ -37,9 +42,10 @@ function defaults(): SuggestionSettings {
       SuggestionTypeId,
       boolean
     >,
-    firstTime: false,
+    firstTime: true,
     rememberedToggle: true,
     hideBeforeYouGo: false,
+    experiment: 1,
   }
 }
 

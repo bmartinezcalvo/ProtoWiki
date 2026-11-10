@@ -33,7 +33,7 @@ const {
   mockEditorEditCount,
 } = useConfig()
 
-const activeTab = ref('user-type')
+const activeTab = ref('suggestions')
 
 const userMenuItems = computed(() =>
   CONFIG_USER_MENU_ITEMS.map((item) =>

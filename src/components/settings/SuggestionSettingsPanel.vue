@@ -75,6 +75,24 @@ const shortfall = computed(
     </CdxField>
 
     <CdxField is-fieldset>
+      <template #label>Experiment</template>
+      <CdxRadio
+        v-model="suggestionSettings.experiment"
+        name="suggestion-experiment"
+        :input-value="1"
+      >
+        experiment #1
+      </CdxRadio>
+      <CdxRadio
+        v-model="suggestionSettings.experiment"
+        name="suggestion-experiment"
+        :input-value="2"
+      >
+        experiment #2
+      </CdxRadio>
+    </CdxField>
+
+    <CdxField is-fieldset>
       <template #label>Number of suggestions</template>
       <CdxRadio v-model="limitMode" name="suggestion-limit" input-value="all">
         All suggestions found (as in production)
