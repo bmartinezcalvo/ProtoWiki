@@ -17,27 +17,50 @@ export interface SuggestionSettings {
   limit: number | null
   types: Record<SuggestionTypeId, boolean>
   /**
-   * First time in Suggestion Mode (`firstTime` true): production starts the desktop
-   * toggle off until the editor turns it on once. Exposed as “First time using
-   * Suggestion Mode” in Suggestion mode settings. Mobile always starts with suggestions visible.
+   * First time in Suggestion Mode. Exposed as “First time using suggestion mode”
+   * in Suggestion mode settings. Suggestions start on regardless (desktop and mobile).
    */
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
   rememberedToggle: boolean
+  /** "Don't show this again" ticked in "Before you go" (discoverability). */
+  hideBeforeYouGo: boolean
+  /**
+   * Discoverability experiment. `1`: lightbulb badge on the read-mode Edit
+   * buttons. `2`: no read-mode badge.
+   */
+  experiment: 1 | 2
 }
 
-const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
+/**
+ * Discoverability experiment this branch is built for. Mock settings are
+ * hidden here, so the experiment, "First time using suggestion mode" and the
+ * suggestion types / count always use these defaults (stored values ignored).
+ */
+const EXPERIMENT: SuggestionSettings['experiment'] = 1
+
+/** Experimental suggestion types: off by default on this branch. */
+const EXPERIMENTAL_TYPES = new Set<SuggestionTypeId>([
+  'fakeHeading',
+  'leadLength',
+  'redirect',
+  'requiredTemplateParam',
+  'llmSuggestion',
+])
+
+const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
 
 function defaults(): SuggestionSettings {
   return {
     enabled: true,
     limit: null,
-    types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, true])) as Record<
-      SuggestionTypeId,
-      boolean
-    >,
-    firstTime: false,
+    types: Object.fromEntries(
+      SUGGESTION_TYPES.map((t) => [t.id, !EXPERIMENTAL_TYPES.has(t.id)]),
+    ) as Record<SuggestionTypeId, boolean>,
+    firstTime: true,
     rememberedToggle: true,
+    hideBeforeYouGo: false,
+    experiment: EXPERIMENT,
   }
 }
 
@@ -61,7 +84,13 @@ function load(): SuggestionSettings {
     return {
       ...base,
       ...rest,
-      types: { ...base.types, ...(rest?.types ?? {}) },
+      // The master switch is no longer exposed in the settings; always on.
+      enabled: true,
+      // Not exposed on this branch (Mock settings hidden): always the defaults.
+      experiment: base.experiment,
+      firstTime: base.firstTime,
+      limit: base.limit,
+      types: base.types,
     }
   } catch {
     return base
