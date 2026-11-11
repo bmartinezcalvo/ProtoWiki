@@ -100,11 +100,9 @@ async function refreshPrefetchSuggestionCount() {
     prefetchSuggestionCount.value = null
     return
   }
-  prefetchSuggestionCount.value = await countArticleSuggestions(
-    bodyHtml.value,
-    vePage.value,
-    editCount.value,
-  )
+  prefetchSuggestionCount.value = (
+    await countArticleSuggestions(bodyHtml.value, vePage.value, editCount.value)
+  ).count
 }
 
 async function onEditClick() {

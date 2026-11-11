@@ -51,8 +51,16 @@ const props = withDefaults(
   review: boolean
     /** Editor still loading: progress bar (Vector) / "Loading editor…" (Minerva). */
     loading?: boolean
+    /**
+     * Suggestions discoverability loading messages, Minerva only:
+     * 1 "Loading editor…", 2 "Looking for suggestions…",
+     * 3 "N suggestions found", 4 fading out. 0 / unset: the default loading state.
+     */
+    loadingPhase?: number
+    /** Suggestions found, for phase 3. */
+    loadingFound?: number
   }>(),
-  { showSuggestionsToggle: true },
+  { showSuggestionsToggle: true, loadingPhase: 0, loadingFound: 0 },
 )
 
 const emit = defineEmits<{
@@ -107,6 +115,13 @@ watch(
   },
   { immediate: true },
 )
+
+const loadingMessage = computed(() => {
+  if (props.loadingPhase === 1) return 'Loading editor…'
+  if (props.loadingPhase === 2) return 'Looking for suggestions…'
+  if (props.loadingFound === 0) return 'No suggestions found'
+  return props.loadingFound === 1 ? ' suggestion found' : ' suggestions found'
+})
 
 const scrolled = ref(false)
 function onScroll() {
@@ -184,8 +199,48 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- Loading -->
-  <div v-if="loading && skin === 'desktop'" class="ve-toolbar ve-toolbar--loading" data-skin="desktop">
+  <!-- Loading: discoverability messages ("Loading editor…" → "Looking for suggestions…" → "N found") -->
+  <div
+    v-if="loading && loadingPhase > 0 && skin === 'mobile'"
+    class="ve-toolbar ve-toolbar--loading ve-toolbar--phased ve-toolbar--slide-in"
+    data-skin="mobile"
+  >
+    <button
+      class="ve-toolbar__btn ve-toolbar__btn--fixed ve-toolbar__btn--close"
+      aria-label="Close"
+      @click="emit('close')"
+    >
+      <CdxIcon :icon="cdxIconClose" />
+    </button>
+    <div
+      class="ve-toolbar__loading-label"
+      :class="{ 've-toolbar__loading-label--fading': loadingPhase >= 4 }"
+      aria-live="polite"
+    >
+      <span class="ve-toolbar__loading-icon">
+        <Transition name="ve-loading-icon">
+          <CdxIcon
+            v-if="loadingPhase >= 3"
+            :icon="cdxIconLightbulb"
+            class="ve-toolbar__loading-bulb"
+            :class="{ 've-toolbar__loading-bulb--empty': loadingFound === 0 }"
+          />
+          <CdxProgressIndicator v-else class="ve-toolbar__spinner" aria-hidden="true" />
+        </Transition>
+      </span>
+      <span class="ve-toolbar__loading-text">
+        <Transition name="ve-loading-msg">
+          <span :key="Math.min(loadingPhase, 3)" class="ve-toolbar__loading-message">
+            <template v-if="loadingPhase >= 3 && loadingFound > 0">
+              <strong class="ve-toolbar__loading-count">{{ loadingFound }}</strong>{{ loadingMessage }}
+            </template>
+            <template v-else>{{ loadingMessage }}</template>
+          </span>
+        </Transition>
+      </span>
+    </div>
+  </div>
+  <div v-else-if="loading && skin === 'desktop'" class="ve-toolbar ve-toolbar--loading" data-skin="desktop">
     <div class="ve-progress" role="progressbar" aria-label="Loading editor" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
       <div class="ve-progress__bar" :style="{ width: `${progress}%`, transitionDuration: `${progressDuration}ms` }" />
     </div>
@@ -593,6 +648,133 @@ onBeforeUnmount(() => {
   width: 20px;
   height: 20px;
   min-width: 20px;
+}
+
+/* Discoverability loading messages (Minerva) */
+.ve-toolbar--phased {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.ve-toolbar--phased .ve-toolbar__loading-label {
+  flex: 1;
+  min-width: 0;
+  transition: opacity 300ms ease;
+}
+
+.ve-toolbar__loading-label--fading {
+  opacity: 0;
+}
+
+.ve-toolbar__loading-icon {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.ve-toolbar__loading-icon > * {
+  position: absolute;
+  inset: 0;
+}
+
+.ve-toolbar__loading-bulb {
+  color: var(--color-progressive, #36c);
+}
+
+.ve-toolbar__loading-bulb--empty {
+  color: var(--color-placeholder, #72777d);
+}
+
+.ve-toolbar__loading-text {
+  position: relative;
+  flex: 1;
+  height: 1.4em;
+  overflow: hidden;
+}
+
+.ve-toolbar__loading-message {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.ve-toolbar__loading-count {
+  color: var(--color-progressive, #36c);
+  font-weight: var(--font-weight-bold, 700);
+}
+
+.ve-loading-msg-enter-active {
+  animation: ve-loading-msg-in 300ms ease-out both;
+}
+
+.ve-loading-msg-leave-active {
+  animation: ve-loading-msg-out 250ms ease-in both;
+}
+
+@keyframes ve-loading-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-50% + 12px));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes ve-loading-msg-out {
+  from {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(calc(-50% - 12px));
+  }
+}
+
+.ve-loading-icon-enter-active {
+  animation: ve-loading-icon-in 400ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.ve-loading-icon-leave-active {
+  animation: ve-loading-icon-out 250ms ease-in both;
+}
+
+@keyframes ve-loading-icon-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ve-loading-icon-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ve-loading-msg-enter-active,
+  .ve-loading-msg-leave-active,
+  .ve-loading-icon-enter-active,
+  .ve-loading-icon-leave-active {
+    animation: none;
+  }
+
+  .ve-toolbar--phased .ve-toolbar__loading-label {
+    transition: none;
+  }
 }
 
 /* Review (Before publishing) */
