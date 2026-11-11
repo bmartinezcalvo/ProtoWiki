@@ -39,16 +39,24 @@ export interface SuggestionSettings {
  */
 const EXPERIMENT: SuggestionSettings['experiment'] = 1
 
+/** Experimental suggestion types: off by default on this branch. */
+const EXPERIMENTAL_TYPES = new Set<SuggestionTypeId>([
+  'fakeHeading',
+  'leadLength',
+  'redirect',
+  'requiredTemplateParam',
+  'llmSuggestion',
+])
+
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
 
 function defaults(): SuggestionSettings {
   return {
     enabled: true,
     limit: null,
-    types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, true])) as Record<
-      SuggestionTypeId,
-      boolean
-    >,
+    types: Object.fromEntries(
+      SUGGESTION_TYPES.map((t) => [t.id, !EXPERIMENTAL_TYPES.has(t.id)]),
+    ) as Record<SuggestionTypeId, boolean>,
     firstTime: true,
     rememberedToggle: true,
     hideBeforeYouGo: false,
