@@ -17,16 +17,38 @@ export interface SuggestionSettings {
   limit: number | null
   types: Record<SuggestionTypeId, boolean>
   /**
-   * First time in Suggestion Mode (`firstTime` true): production starts the desktop
-   * toggle off until the editor turns it on once. Exposed as “First time using
-   * Suggestion Mode” in Suggestion mode settings. Mobile always starts with suggestions visible.
+   * First time in Suggestion Mode. Exposed as “First time using suggestion mode”
+   * in Suggestion mode settings. Suggestions start on regardless (desktop and mobile).
    */
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
   rememberedToggle: boolean
+  /** "Don't show this again" ticked in "Before you go" (discoverability). */
+  hideBeforeYouGo: boolean
+  /**
+   * Discoverability experiment. `1`: lightbulb badge on the read-mode Edit
+   * buttons. `2`: no read-mode badge.
+   */
+  experiment: 1 | 2
+  /**
+   * Unselected highlighted text. `railHighlight`: grey background plus the rail
+   * (the blue / yellow line beside it). `rail`: transparent background, rail only.
+   */
+  highlightStyle: 'railHighlight' | 'rail'
+  /** Suggestion icons: `lightbulb` for every suggestion, or `contextual` icons per category. */
+  suggestionIcons: 'lightbulb' | 'contextual'
+  /** "Show stacked suggestions": at least one paragraph has more than one suggestion. */
+  showStacked: boolean
+  /**
+   * "Empty state in ToggleButton" (0 suggestions): popover under the toggle, a toast,
+   * `selectable` (the toggle turns on / off and shows a "0" badge), or `nothing` (toggle hidden).
+   */
+  emptyState: 'popover' | 'toast' | 'selectable' | 'nothing'
+  /** "Empty state when completed/declined all suggestions": nothing, the "No more suggestions" card, or a toast. */
+  allReviewedState: 'nothing' | 'card' | 'toast'
 }
 
-const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
+const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
 
 function defaults(): SuggestionSettings {
   return {
@@ -36,8 +58,15 @@ function defaults(): SuggestionSettings {
       SuggestionTypeId,
       boolean
     >,
-    firstTime: false,
+    firstTime: true,
     rememberedToggle: true,
+    hideBeforeYouGo: false,
+    experiment: 1,
+    highlightStyle: 'railHighlight',
+    suggestionIcons: 'lightbulb',
+    showStacked: false,
+    emptyState: 'popover',
+    allReviewedState: 'nothing',
   }
 }
 
@@ -61,6 +90,8 @@ function load(): SuggestionSettings {
     return {
       ...base,
       ...rest,
+      // The master switch is no longer exposed in the settings; always on.
+      enabled: true,
       types: { ...base.types, ...(rest?.types ?? {}) },
     }
   } catch {

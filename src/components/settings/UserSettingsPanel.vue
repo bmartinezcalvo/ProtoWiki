@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import {
   CdxButton,
   CdxField,
+  CdxRadio,
   CdxSelect,
+  CdxTab,
+  CdxTabs,
   CdxTextInput,
   CdxTooltip as vTooltip,
 } from '@wikimedia/codex'
 
+import SuggestionSettingsPanel from '@/components/settings/SuggestionSettingsPanel.vue'
+import { suggestionSettings } from '@/components/visual-editor/settings'
 import { useConfig } from '@/composables/useConfig'
 import {
   CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS,
@@ -29,6 +34,8 @@ const {
   resetCurrentUserPageLists,
   mockEditorEditCount,
 } = useConfig()
+
+const activeTab = ref('suggestions')
 
 const userMenuItems = computed(() =>
   CONFIG_USER_MENU_ITEMS.map((item) =>
@@ -57,62 +64,118 @@ const editedPagesText = computed({
 <template>
   <div class="settings-panel user-settings-panel">
     <div class="settings-panel__intro">
-      <h2 class="settings-panel__title">Mock user settings</h2>
+      <h2 class="settings-panel__title">Mock settings</h2>
       <p class="settings-panel__description">
-        Preview supported prototypes from the perspective of different users.
+        Preview supported prototypes from different perspectives.
       </p>
     </div>
-    <div class="user-settings-panel__fields">
-      <CdxField>
-        <template #label>Preset</template>
-        <div class="settings-panel__row">
-          <CdxSelect
-            v-model:selected="user"
-            class="settings-panel__input"
-            :menu-items="userMenuItems"
-            default-label="New user"
-          />
-          <CdxButton
-            v-tooltip="!isCurrentUserPageListsModified ? 'Already set to default' : undefined"
-            weight="quiet"
-            :disabled="!isCurrentUserPageListsModified"
-            @click="resetCurrentUserPageLists"
-          >
-            Reset
-          </CdxButton>
+    <CdxTabs v-model:active="activeTab" class="user-settings-panel__tabs">
+      <CdxTab name="user-type" label="User type">
+        <div class="user-settings-panel__fields">
+          <CdxField>
+            <template #label>Preset</template>
+            <div class="settings-panel__row">
+              <CdxSelect
+                v-model:selected="user"
+                class="settings-panel__input"
+                :menu-items="userMenuItems"
+                default-label="New user"
+              />
+              <CdxButton
+                v-tooltip="!isCurrentUserPageListsModified ? 'Already set to default' : undefined"
+                weight="quiet"
+                :disabled="!isCurrentUserPageListsModified"
+                @click="resetCurrentUserPageLists"
+              >
+                Reset
+              </CdxButton>
+            </div>
+          </CdxField>
+          <CdxField class="user-settings-panel__wiki-field">
+            <template #label>Wiki</template>
+            <CdxTextInput v-model="lang" class="settings-panel__input" />
+          </CdxField>
+          <CdxField v-if="user !== 'logged-out' && user !== 'real'">
+            <template #label>Edits</template>
+            <CdxSelect
+              v-model:selected="mockEditorEditCount"
+              class="settings-panel__input"
+              :menu-items="CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS"
+            />
+          </CdxField>
+          <CdxField v-if="user === 'real'">
+            <template #label>Username</template>
+            <CdxTextInput v-model="realUsername" class="settings-panel__input" />
+          </CdxField>
+          <template v-if="user !== 'real' && user !== 'logged-out'">
+            <CdxField>
+              <template #label>Watchlist</template>
+              <CdxTextInput v-model="watchlistText" class="settings-panel__input" />
+            </CdxField>
+            <CdxField>
+              <template #label>Saved pages</template>
+              <CdxTextInput v-model="readingListText" class="settings-panel__input" />
+            </CdxField>
+            <CdxField>
+              <template #label>Edited pages</template>
+              <CdxTextInput v-model="editedPagesText" class="settings-panel__input" />
+            </CdxField>
+          </template>
         </div>
-      </CdxField>
-      <CdxField class="user-settings-panel__wiki-field">
-        <template #label>Wiki</template>
-        <CdxTextInput v-model="lang" class="settings-panel__input" />
-      </CdxField>
-      <CdxField v-if="user !== 'logged-out' && user !== 'real'">
-        <template #label>Edits</template>
-        <CdxSelect
-          v-model:selected="mockEditorEditCount"
-          class="settings-panel__input"
-          :menu-items="CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS"
-        />
-      </CdxField>
-      <CdxField v-if="user === 'real'">
-        <template #label>Username</template>
-        <CdxTextInput v-model="realUsername" class="settings-panel__input" />
-      </CdxField>
-      <template v-if="user !== 'real' && user !== 'logged-out'">
-        <CdxField>
-          <template #label>Watchlist</template>
-          <CdxTextInput v-model="watchlistText" class="settings-panel__input" />
-        </CdxField>
-        <CdxField>
-          <template #label>Saved pages</template>
-          <CdxTextInput v-model="readingListText" class="settings-panel__input" />
-        </CdxField>
-        <CdxField>
-          <template #label>Edited pages</template>
-          <CdxTextInput v-model="editedPagesText" class="settings-panel__input" />
-        </CdxField>
-      </template>
-    </div>
+      </CdxTab>
+      <CdxTab name="suggestions" label="Suggestions">
+        <SuggestionSettingsPanel hide-intro />
+      </CdxTab>
+      <CdxTab name="other" label="Other settings">
+        <div class="user-settings-panel__fields">
+          <CdxField is-fieldset>
+            <template #label>Highlighted text when unselected</template>
+            <CdxRadio v-model="suggestionSettings.highlightStyle" name="highlight-style" input-value="railHighlight">
+              Rail + highlighted
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.highlightStyle" name="highlight-style" input-value="rail">
+              Just rail
+            </CdxRadio>
+          </CdxField>
+          <CdxField is-fieldset>
+            <template #label>Suggestions icons</template>
+            <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="lightbulb">
+              Lightbulb icon
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="contextual">
+              Contextual icons
+            </CdxRadio>
+          </CdxField>
+          <CdxField is-fieldset>
+            <template #label>Empty state in ToggleButton</template>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="popover">
+              Popover
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="toast">
+              Toast
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="selectable">
+              Selectable button with 0 in badge
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="nothing">
+              Nothing
+            </CdxRadio>
+          </CdxField>
+          <CdxField is-fieldset>
+            <template #label>Empty state when completed/declined all suggestions</template>
+            <CdxRadio v-model="suggestionSettings.allReviewedState" name="all-reviewed-state" input-value="nothing">
+              Nothing
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.allReviewedState" name="all-reviewed-state" input-value="card">
+              Card
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.allReviewedState" name="all-reviewed-state" input-value="toast">
+              Toast
+            </CdxRadio>
+          </CdxField>
+        </div>
+      </CdxTab>
+    </CdxTabs>
   </div>
 </template>
 
@@ -128,6 +191,10 @@ const editedPagesText = computed({
   display: flex;
   flex-direction: column;
   gap: var(--spacing-100);
+}
+
+.user-settings-panel__tabs :deep(.cdx-tabs__content) {
+  padding-top: var(--spacing-100);
 }
 
 .user-settings-panel__wiki-field {
