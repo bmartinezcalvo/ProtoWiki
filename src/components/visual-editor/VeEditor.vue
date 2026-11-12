@@ -33,10 +33,12 @@ import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEdi
 import VeToolbar from './VeToolbar.vue'
 import * as fix from './engine/actions'
 import {
+  createAddReferenceFinding,
   detectSuggestions,
   leadParagraphs,
   leadWordCount,
   prepare,
+  sortFindings,
   type ChoiceAction,
   type Finding,
 } from './engine/checks'
@@ -52,7 +54,12 @@ import {
 import { STR } from './engine/strings'
 import { applySuggestionSettings, suggestionSettings } from './settings'
 import welcomeGlobe from './assets/neutral-baby-globe.gif'
-import { PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR } from '@/components/article/shared/editSuggestionsIndicator'
+import {
+  PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR,
+  editorCountKey,
+  editorSuggestionCounts,
+} from '@/components/article/shared/editSuggestionsIndicator'
+import { contextualIcon } from './engine/suggestionIcons'
 
 const props = defineProps<{
   html: string
@@ -256,7 +263,39 @@ function scrollToSection(id: string) {
 }
 
 /** Suggestions after the settings filter (type + custom count). */
-const filteredSuggestions = computed(() => applySuggestionSettings(suggestions.value))
+/** "Show stacked suggestions" (Mock settings): extra suggestion that stacks on an existing paragraph. */
+const stackExtra = shallowRef<Finding | null>(null)
+const filteredSuggestions = computed(() => {
+  const list = applySuggestionSettings(suggestions.value)
+  return stackExtra.value && suggestionSettings.showStacked ? sortFindings([...list, stackExtra.value]) : list
+})
+
+/**
+ * With "Show stacked suggestions" on, make sure at least one paragraph has more
+ * than one suggestion: if none does, add "Add a citation" to a paragraph that
+ * already has another suggestion near its top (so the Minerva rail stacks them).
+ */
+function computeStackExtra() {
+  stackExtra.value = null
+  if (!suggestionSettings.showStacked) return
+  const byBlock = new Map<Element, Finding[]>()
+  for (const f of applySuggestionSettings(suggestions.value)) {
+    const block = blockOf(f.element ?? f.ranges[0]?.startContainer ?? null)
+    if (block) byBlock.set(block, [...(byBlock.get(block) ?? []), f])
+  }
+  if ([...byBlock.values()].some((list) => list.length > 1)) return
+  const candidates = [...byBlock].filter(
+    ([block, list]) =>
+      block.tagName === 'P' && (block.textContent ?? '').trim().length >= 50 && !list.some((f) => f.type === 'addReference'),
+  )
+  const nearTop = ([block, list]: [Element, Finding[]]) =>
+    Math.abs(list[0].ranges[0].getBoundingClientRect().top - block.getBoundingClientRect().top) < 16
+  const pick = candidates.find(nearTop) ?? candidates[0]
+  if (!pick) return
+  const extra = createAddReferenceFinding(pick[0])
+  status.set(extra.id, 'pending')
+  stackExtra.value = extra
+}
 
 const pendingSuggestions = computed(() =>
   filteredSuggestions.value.filter((f) => status.get(f.id) === 'pending' && isLive(f) && inScope(f)),
@@ -317,6 +356,7 @@ async function runDetection() {
   })
   for (const f of findings) status.set(f.id, 'pending')
   suggestions.value = findings
+  computeStackExtra()
   detecting.value = false
   emit('detected', findings.length)
   scheduleLayout()
@@ -332,15 +372,20 @@ watch([editCount, editCountReady], () => {
 const toast = ref<{ id: number; text: string } | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 let toastCounter = 0
-function showToast(text: string) {
+function showToast(text: string, options: { duration?: number; immediate?: boolean } = {}) {
   if (toastTimer) clearTimeout(toastTimer)
   const show = () => {
     toast.value = { id: ++toastCounter, text }
-    toastTimer = setTimeout(() => (toast.value = null), 2000)
+    toastTimer = setTimeout(() => (toast.value = null), options.duration ?? 2000)
   }
   // Minerva shows the toggle toast 500 ms after the change.
-  if (isMobile.value) toastTimer = setTimeout(show, 500)
+  if (isMobile.value && !options.immediate) toastTimer = setTimeout(show, 500)
   else show()
+}
+
+/** Minerva "0 suggestions" empty state as a toast: gone after 4 seconds. */
+function showEmptyToast() {
+  showToast('There are no suggestions to improve this article for now.', { duration: 4000, immediate: true })
 }
 
 watch(
@@ -364,15 +409,46 @@ watch(
   },
 )
 
+/**
+ * Desktop suggestions side panel: only while there are suggestions to show,
+ * so with 0 suggestions the article stays centred whether the toggle is on or off.
+ */
+const sidebarWanted = computed(
+  () => modeEnabled.value && !loadingEditor.value && !isMobile.value && suggestionsOn.value && (detecting.value || badgeCount.value > 0),
+)
+watch(sidebarWanted, (open) => emit('sidebar', open))
+// Read mode uses the editor's real count once known: the indicator shows with at
+// least 1 suggestion and hides only at 0. Whole article, not just the section being edited.
+const articleSuggestionCount = computed(
+  () => filteredSuggestions.value.filter((f) => status.get(f.id) === 'pending').length,
+)
+let leavingEditor = false
+watch([articleSuggestionCount, detecting, loadingEditor], () => {
+  // Never record while loading, detecting or closing (the surface is torn down then).
+  if (leavingEditor || detecting.value || loadingEditor.value) return
+  editorSuggestionCounts.set(editorCountKey(props.page.host, props.page.title), articleSuggestionCount.value)
+})
+onBeforeUnmount(() => {
+  leavingEditor = true
+})
+watch(() => suggestionSettings.highlightStyle, () => scheduleLayout())
+watch(
+  () => [suggestionSettings.showStacked, suggestionSettings.limit, JSON.stringify(suggestionSettings.types)],
+  () => {
+    computeStackExtra()
+    scheduleLayout()
+  },
+)
+
 watch(suggestionsOn, (on) => {
   if (!modeEnabled.value) return
   if (!isMobile.value) suggestionSettings.rememberedToggle = on
-  emit('sidebar', on && !isMobile.value)
   if (!on) {
     sheetOpen.value = false
     focusedId.value = null
   }
-  showToast(on ? (badgeCount.value > 0 ? STR.suggestionsTurnedOn : STR.suggestionsNone) : STR.suggestionsTurnedOff)
+  // 0 suggestions: no toast, the toolbar shows the "0 suggestions" popover instead.
+  if (badgeCount.value > 0) showToast(on ? STR.suggestionsTurnedOn : STR.suggestionsTurnedOff)
   flashGlow()
   scheduleLayout()
 })
@@ -427,8 +503,9 @@ function measure() {
   for (const f of displayed.value) {
     const list = rectsFor(f, origin)
     next.set(f.id, list)
-    // Rail on the left: block-level suggestions, and every edit check.
-    if (list.length && (isBlockFinding(f) || f.mode === 'check')) {
+    // Rail on the left: block-level suggestions, and every edit check
+    // ("Just rail" in Mock settings: every suggestion, as it is their only marker).
+    if (list.length && (isBlockFinding(f) || f.mode === 'check' || suggestionSettings.highlightStyle === 'rail')) {
       const top = Math.min(...list.map((b) => b.top))
       const bottom = Math.max(...list.map((b) => b.top + b.height))
       bars.set(f.id, { top, left: 0, width: 2, height: bottom - top })
@@ -1137,19 +1214,29 @@ function viewMore() {
 // Mobile gutter lightbulbs (one per highlight row; overlapping rows share one).
 const gutterMarks = computed(() => {
   if (!isMobile.value) return []
-  const marks: { top: number; ids: string[]; state: 'pending' | 'success' | 'check'; experimental: boolean }[] = []
+  const marks: {
+    top: number
+    ids: string[]
+    state: 'pending' | 'success' | 'check'
+    experimental: boolean
+    type: string
+    block: Element | null
+  }[] = []
   for (const f of displayed.value) {
     const list = boxes.value.get(f.id)
     if (!list?.length) continue
     const top = Math.min(...list.map((b) => b.top))
     const completed = successIds.has(f.id) || (publishPathId.value === f.id && status.get(f.id) === 'done')
     const state = completed ? 'success' : f.mode === 'check' ? 'check' : 'pending'
-    const existing = marks.find((m) => Math.abs(m.top - top) < 20)
+    // Stacked: suggestions in the same block (paragraph) share one rail icon with a count.
+    const block = blockOf(f.element ?? f.ranges[0]?.startContainer ?? null)
+    const existing = marks.find((m) => (block && m.block === block) || Math.abs(m.top - top) < 20)
     if (existing) {
+      existing.top = Math.min(existing.top, top)
       existing.ids.push(f.id)
       if (state === 'check') existing.state = 'check'
       existing.experimental = existing.experimental && !!f.experimental
-    } else marks.push({ top, ids: [f.id], state, experimental: !!f.experimental })
+    } else marks.push({ top, ids: [f.id], state, experimental: !!f.experimental, type: f.type, block })
   }
   return marks
 })
@@ -1408,7 +1495,6 @@ onMounted(async () => {
   if (discoverability && isMobile.value) await discoverabilityLoading(detection)
   else await minimumLoad
   loadingEditor.value = false
-  emit('sidebar', suggestionsOn.value && !isMobile.value)
   if (!isMobile.value && props.section) nextTick(() => scrollToSection(props.section!))
   if (sectionOnly.value) nextTick(scrollPastTopButton)
   scheduleLayout()
@@ -1476,9 +1562,7 @@ async function discoverabilityLoading(detection: Promise<void>) {
   await wait(1200)
   loadingPhase.value = 2
   await Promise.all([detection, wait(1000)])
-  loadingFound.value = pendingSuggestions.value.length
-  loadingPhase.value = 3
-  await wait(1300)
+  // No "N suggestions found" step: straight from "Looking for suggestions…" to fading out.
   loadingPhase.value = 4
   await wait(300)
   loadingPhase.value = 0
@@ -1603,8 +1687,15 @@ function discardEdits() {
 defineExpose({ hasChanges, requestExit })
 
 /** Card icon: alert for checks, dashed lightbulb for experimental suggestions. */
-const iconFor = (f: Finding) =>
-  f.mode === 'check' ? cdxIconAlert : f.experimental ? cdxIconLightbulbDashed : cdxIconLightbulb
+/** Suggestion icon: the lightbulb, or a contextual icon per category (Mock settings → Other settings). */
+function suggestionIcon(type: string, experimental: boolean) {
+  if (suggestionSettings.suggestionIcons === 'contextual') {
+    const icon = contextualIcon(type)
+    if (icon) return icon
+  }
+  return experimental ? cdxIconLightbulbDashed : cdxIconLightbulb
+}
+const iconFor = (f: Finding) => (f.mode === 'check' ? cdxIconAlert : suggestionIcon(f.type, !!f.experimental))
 
 const subheadingFor = (f: Finding) =>
   f.experimental ? (f.mode === 'check' ? 'Experimental edit check for testing' : 'Experimental suggestion for testing') : null
@@ -1619,6 +1710,7 @@ const titleFor = (f: Finding) =>
     :data-skin="skin"
     :class="{
       've-editor--suggestions': suggestionsOn,
+      've-editor--hl-rail': suggestionSettings.highlightStyle === 'rail',
       've-editor--glow': glow,
       've-editor--review': !!review,
       've-editor--sheet-open': sheetOpen,
@@ -1643,6 +1735,7 @@ const titleFor = (f: Finding) =>
       @publish="publish"
       @back="leaveReview"
       @text-style="textStyle"
+      @empty-toast="showEmptyToast"
     />
 
     <!-- Vector: the tagline sits under the editor toolbar. -->
@@ -1702,7 +1795,7 @@ const titleFor = (f: Finding) =>
         />
 
         <!-- Mobile gutter -->
-        <div v-if="isMobile && (suggestionsOn || pendingChecks.length)" class="ve-gutter" aria-hidden="false">
+        <div v-if="isMobile && ((suggestionsOn && (detecting || badgeCount > 0)) || pendingChecks.length)" class="ve-gutter" aria-hidden="false">
           <button
             v-for="mark in gutterMarks"
             :key="mark.ids.join()"
@@ -1726,7 +1819,7 @@ const titleFor = (f: Finding) =>
             </svg>
             <CdxIcon
               v-else
-              :icon="mark.state === 'check' ? cdxIconAlert : mark.experimental ? cdxIconLightbulbDashed : cdxIconLightbulb"
+              :icon="mark.state === 'check' ? cdxIconAlert : suggestionIcon(mark.type, mark.experimental)"
             />
             <span v-if="mark.ids.length > 1" class="ve-gutter__count">{{ mark.ids.length }}</span>
           </button>
@@ -1952,8 +2045,16 @@ const titleFor = (f: Finding) =>
     </div>
 
     <!-- Toggle toasts: dark Minerva toast / Codex toast on desktop -->
-    <div v-if="isMobile && toast" :key="toast.id" class="ve-mobile-toast" role="status" aria-live="polite">{{ toast.text }}</div>
-    <CdxToast v-else-if="toast" :key="toast.id" type="notice" @user-dismissed="toast = null">{{ toast.text }}</CdxToast>
+    <div
+      v-if="isMobile && toast"
+      :key="toast.id"
+      class="ve-mobile-toast"
+      role="status"
+      aria-live="polite"
+    >
+      <span>{{ toast.text }}</span>
+    </div>
+    <CdxToast v-else-if="toast" :key="toast.id" type="notice" prevent-user-dismiss>{{ toast.text }}</CdxToast>
 
     <!-- Discoverability, first time: welcome. Neutral Baby Globe, Wikimedia Foundation, CC BY-SA 4.0
          (https://commons.wikimedia.org/wiki/File:Neutral_Baby_Globe.gif), scaled down. -->
@@ -2452,6 +2553,11 @@ const titleFor = (f: Finding) =>
   background-color: var(--background-color-success-subtle, #dff2eb);
 }
 
+/* Mock settings → "Just rail": unselected highlights have no background, only the rail. */
+.ve-editor--hl-rail .ve-hl--default {
+  background-color: var(--background-color-transparent, transparent);
+}
+
 .ve-hl-bar {
   position: absolute;
   left: -12px;
@@ -2792,6 +2898,44 @@ const titleFor = (f: Finding) =>
   border-radius: 0;
 }
 
+/* Minerva edit mode: the infobox spans the full content width, the same as the article text. */
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(table.infobox) {
+  float: none;
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* {{Multiple image}} inside the infobox: shrink its fixed-width rows to fit inside the box. */
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner) {
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .trow) {
+  flex-wrap: nowrap;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .tsingle) {
+  /* The inline width stays the flex basis, so images keep their proportions while shrinking. */
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: none !important;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .tsingle > div:first-child) {
+  max-width: 100%;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .tsingle img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .ve-gutter {
   position: absolute;
   top: 0;
@@ -3028,5 +3172,18 @@ const titleFor = (f: Finding) =>
   font-size: var(--font-size-small, 14px);
   line-height: 20px;
   z-index: 220;
+}
+
+</style>
+
+<style>
+/* Vector suggestion toggle toast (teleported to body, so scoped via :has): no info icon, 14px text. */
+body:has(.ve-editor) .cdx-toast .cdx-message__icon--vue {
+  display: none;
+}
+
+/* Vector toasts: always 14px text. */
+.cdx-toast .cdx-message__content {
+  font-size: var(--font-size-small, 14px);
 }
 </style>

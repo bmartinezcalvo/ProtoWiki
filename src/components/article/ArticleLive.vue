@@ -69,7 +69,11 @@ import { CdxMessage, CdxProgressBar } from '@wikimedia/codex'
 
 import ArticleRenderer from './ArticleRenderer.vue'
 import ArticleWrapper from './ArticleWrapper.vue'
-import { PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR } from './shared/editSuggestionsIndicator'
+import {
+  PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR,
+  editorCountKey,
+  editorSuggestionCounts,
+} from './shared/editSuggestionsIndicator'
 import {
   attachSectionEditLinkHandler,
   decorateSectionEditLinks,
@@ -251,16 +255,23 @@ function isAbortError(err: unknown): boolean {
   return false
 }
 
+/** Read-mode count: what the editor showed for this page if it was opened, else the load-time count. */
+const readModeSuggestionCount = computed(() => {
+  const page = vePage.value
+  const fromEditor = page ? editorSuggestionCounts.get(editorCountKey(page.host, page.title)) : undefined
+  return fromEditor ?? prefetchSuggestionCount.value ?? 0
+})
+
 if (showsSuggestionsIndicator.value) {
   provide(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, {
     show: computed(
       () =>
         suggestionSettings.experiment === 1 &&
         !editing.value &&
-        (prefetchSuggestionCount.value ?? 0) > 0,
+        readModeSuggestionCount.value > 0,
     ),
     pulse: computed(() => suggestionSettings.firstTime),
-    sections: computed(() => prefetchSuggestionSections.value),
+    sections: computed(() => (readModeSuggestionCount.value > 0 ? prefetchSuggestionSections.value : new Set<string>())),
   })
 }
 
@@ -401,6 +412,20 @@ watch(
   { flush: 'post' },
 )
 onBeforeUnmount(() => detachReadSectionEdit?.())
+
+// Suggestion settings changed (types, number, stacked…): recount, and forget the
+// editor's counts, which were taken with the old settings.
+watch(
+  () => [
+    suggestionSettings.limit,
+    JSON.stringify(suggestionSettings.types),
+    suggestionSettings.showStacked,
+  ],
+  () => {
+    editorSuggestionCounts.clear()
+    if (countsSuggestions.value) void refreshPrefetchSuggestionCount()
+  },
+)
 
 watch([editCount, editCountReady], () => {
   if (editCountReady.value && countsSuggestions.value) void refreshPrefetchSuggestionCount()

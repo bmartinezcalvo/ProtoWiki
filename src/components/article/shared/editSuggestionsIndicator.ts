@@ -1,4 +1,4 @@
-import type { ComputedRef, InjectionKey } from 'vue'
+import { reactive, type ComputedRef, type InjectionKey } from 'vue'
 
 /**
  * Suggestions discoverability, provided by `ArticleLive` when
@@ -28,3 +28,11 @@ const BADGE_PATHS =
 export const EDIT_SUGGESTIONS_BADGE_HTML = `<svg class="edit-suggestions-indicator__badge" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">${BADGE_PATHS}</svg>`
 
 export const EDIT_SUGGESTIONS_PULSE_HTML = '<span class="edit-suggestions-indicator__pulse"></span>'
+
+/**
+ * Suggestions the editor actually showed, per page (`host|title`). Read mode
+ * prefers this over its own load-time count once the article has been opened in
+ * the editor, so a page the editor found 0 suggestions on shows no indicator.
+ */
+export const editorSuggestionCounts = reactive(new Map<string, number>())
+export const editorCountKey = (host: string, title: string) => `${host}|${title}`

@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import {
   CdxButton,
   CdxField,
+  CdxRadio,
   CdxSelect,
   CdxTab,
   CdxTabs,
@@ -12,6 +13,7 @@ import {
 } from '@wikimedia/codex'
 
 import SuggestionSettingsPanel from '@/components/settings/SuggestionSettingsPanel.vue'
+import { suggestionSettings } from '@/components/visual-editor/settings'
 import { useConfig } from '@/composables/useConfig'
 import {
   CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS,
@@ -123,6 +125,37 @@ const editedPagesText = computed({
       </CdxTab>
       <CdxTab name="suggestions" label="Suggestions">
         <SuggestionSettingsPanel hide-intro />
+      </CdxTab>
+      <CdxTab name="other" label="Other settings">
+        <div class="user-settings-panel__fields">
+          <CdxField is-fieldset>
+            <template #label>Highlighted text when unselected</template>
+            <CdxRadio v-model="suggestionSettings.highlightStyle" name="highlight-style" input-value="railHighlight">
+              Rail + highlighted
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.highlightStyle" name="highlight-style" input-value="rail">
+              Just rail
+            </CdxRadio>
+          </CdxField>
+          <CdxField is-fieldset>
+            <template #label>Suggestions icons</template>
+            <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="lightbulb">
+              Lightbulb icon
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="contextual">
+              Contextual icons
+            </CdxRadio>
+          </CdxField>
+          <CdxField is-fieldset>
+            <template #label>Empty state when 0 suggestions</template>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="popover">
+              Popover
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="toast">
+              Toast
+            </CdxRadio>
+          </CdxField>
+        </div>
       </CdxTab>
     </CdxTabs>
   </div>

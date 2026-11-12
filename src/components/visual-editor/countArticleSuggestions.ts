@@ -1,7 +1,7 @@
 import { editorHasAtLeast25Edits, editorIsExperienced } from '@/config'
 
 import { detectSuggestions } from './engine/checks'
-import { suggestionSettings } from './settings'
+import { applySuggestionSettings, suggestionSettings } from './settings'
 import type { VisualEditorPage } from './useVisualEditorArticle'
 
 function parseArticleHtml(html: string): Document {
@@ -28,9 +28,9 @@ export async function countArticleSuggestions(
     experiencedEditor: editorIsExperienced(editCount),
     atLeast25Edits: editorHasAtLeast25Edits(editCount),
   }
-  const list = (await detectSuggestions(root, page, options)).filter(
-    (f) => suggestionSettings.types[f.type as keyof typeof suggestionSettings.types] !== false,
-  )
+  // Same filtering as the editor (enabled types + "number of suggestions" limit),
+  // so read mode and edit mode agree on the count.
+  const list = applySuggestionSettings(await detectSuggestions(root, page, options))
   for (const f of list) {
     const node = f.element ?? f.ranges[0]?.startContainer
     let el = node ? (node.nodeType === 1 ? (node as Element) : node.parentElement) : null

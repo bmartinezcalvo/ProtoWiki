@@ -6,7 +6,9 @@
  * Back · title · disabled Publish.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CdxIcon, CdxProgressIndicator, CdxToggleButton } from '@wikimedia/codex'
+import { CdxIcon, CdxPopover, CdxProgressIndicator, CdxToast, CdxToggleButton } from '@wikimedia/codex'
+
+import { suggestionSettings } from './settings'
 import {
   cdxIconAdd,
   cdxIconBold,
@@ -21,6 +23,7 @@ import {
   cdxIconHelp,
   cdxIconItalic,
   cdxIconLightbulb,
+  cdxIconLightbulbOutline,
   cdxIconLink,
   cdxIconListBullet,
   cdxIconMenu,
@@ -71,16 +74,52 @@ const emit = defineEmits<{
   publish: []
   back: []
   textStyle: [command: string]
+  /** Minerva: show the "0 suggestions" empty state as a Minerva toast (rendered by the editor). */
+  emptyToast: []
 }>()
 
-const toggleModel = computed({
-  get: () => props.suggestionsOn,
-  set: (value: boolean) => emit('update:suggestionsOn', value),
+/** No suggestions: the toggle looks off (no badge, no rays) whether on or off. */
+const noSuggestions = computed(() => props.count === 0)
+/** What the toggle shows as pressed. */
+const toggleShownOn = computed(() => props.suggestionsOn && !noSuggestions.value)
+
+/** "0 suggestions" popover, shown when turning suggestions on with none to show. */
+const emptyPopoverOpen = ref(false)
+const toggleRef = ref<InstanceType<typeof CdxToggleButton> | null>(null)
+
+/** Empty state as a toast instead ("Empty state when 0 suggestions" in Mock settings). */
+const emptyToastKey = ref(0)
+const emptyToastOpen = ref(false)
+
+let emptyPopoverTimer: ReturnType<typeof setTimeout> | null = null
+watch(emptyPopoverOpen, (open) => {
+  if (emptyPopoverTimer) clearTimeout(emptyPopoverTimer)
+  // Hides itself after 4 seconds.
+  if (open) emptyPopoverTimer = setTimeout(() => (emptyPopoverOpen.value = false), 4000)
 })
+
+function onToggle() {
+  // No suggestions: nothing to turn on or off, the click only shows the empty state.
+  if (noSuggestions.value) {
+    if (suggestionSettings.emptyState === 'toast') {
+      if (props.skin === 'mobile') {
+        emit('emptyToast')
+        return
+      }
+      emptyToastKey.value++
+      emptyToastOpen.value = true
+      return
+    }
+    emptyPopoverOpen.value = !emptyPopoverOpen.value
+    return
+  }
+  emptyPopoverOpen.value = false
+  emit('update:suggestionsOn', !props.suggestionsOn)
+}
 
 /** editcheck-toolbar-suggestions-count: {{PLURAL:$1|$1|100=99+}} */
 const badgeLabel = computed(() => (props.count >= 100 ? '99+' : String(props.count)))
-const showBadge = computed(() => props.count > 0 || props.suggestionsOn)
+const showBadge = computed(() => props.count > 0)
 
 /**
  * Desktop loading bar (`ve.init.mw.ProgressBarWidget`): fills 30% → 70% → 100%
@@ -117,10 +156,9 @@ watch(
 )
 
 const loadingMessage = computed(() => {
+  // Only "Loading editor…" and "Looking for suggestions…" (no found count).
   if (props.loadingPhase === 1) return 'Loading editor…'
-  if (props.loadingPhase === 2) return 'Looking for suggestions…'
-  if (props.loadingFound === 0) return 'No suggestions found'
-  return props.loadingFound === 1 ? ' suggestion found' : ' suggestions found'
+  return 'Looking for suggestions…'
 })
 
 const scrolled = ref(false)
@@ -218,24 +256,11 @@ onBeforeUnmount(() => {
       aria-live="polite"
     >
       <span class="ve-toolbar__loading-icon">
-        <Transition name="ve-loading-icon">
-          <CdxIcon
-            v-if="loadingPhase >= 3"
-            :icon="cdxIconLightbulb"
-            class="ve-toolbar__loading-bulb"
-            :class="{ 've-toolbar__loading-bulb--empty': loadingFound === 0 }"
-          />
-          <CdxProgressIndicator v-else class="ve-toolbar__spinner" aria-hidden="true" />
-        </Transition>
+        <CdxProgressIndicator class="ve-toolbar__spinner" aria-hidden="true" />
       </span>
       <span class="ve-toolbar__loading-text">
         <Transition name="ve-loading-msg">
-          <span :key="Math.min(loadingPhase, 3)" class="ve-toolbar__loading-message">
-            <template v-if="loadingPhase >= 3 && loadingFound > 0">
-              <strong class="ve-toolbar__loading-count">{{ loadingFound }}</strong>{{ loadingMessage }}
-            </template>
-            <template v-else>{{ loadingMessage }}</template>
-          </span>
+          <span :key="Math.min(loadingPhase, 2)" class="ve-toolbar__loading-message">{{ loadingMessage }}</span>
         </Transition>
       </span>
     </div>
@@ -320,18 +345,20 @@ onBeforeUnmount(() => {
       </button>
       <CdxToggleButton
         v-if="showSuggestionsToggle"
-        v-model="toggleModel"
+        :model-value="toggleShownOn"
         quiet
         class="ve-toolbar__suggestions"
-        :class="{ 've-toolbar__suggestions--on': suggestionsOn }"
+        :class="{ 've-toolbar__suggestions--on': toggleShownOn }"
+        ref="toggleRef"
+        @update:model-value="onToggle"
         :aria-label="STR.toggleSuggestions"
         :title="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="suggestionsOn" class="ve-bulb__rays" aria-hidden="true">
+          <span v-if="toggleShownOn" class="ve-bulb__rays" aria-hidden="true">
             <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
           </span>
-          <CdxIcon :icon="cdxIconLightbulb" />
+          <CdxIcon :icon="noSuggestions ? cdxIconLightbulbOutline : cdxIconLightbulb" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
       </CdxToggleButton>
@@ -431,17 +458,19 @@ onBeforeUnmount(() => {
       </div>
       <CdxToggleButton
         v-if="showSuggestionsToggle"
-        v-model="toggleModel"
+        :model-value="toggleShownOn"
         quiet
         class="ve-toolbar__suggestions ve-toolbar__btn--fill"
-        :class="{ 've-toolbar__suggestions--on': suggestionsOn }"
+        :class="{ 've-toolbar__suggestions--on': toggleShownOn, 've-toolbar__suggestions--empty': noSuggestions }"
+        ref="toggleRef"
+        @update:model-value="onToggle"
         :aria-label="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="suggestionsOn" class="ve-bulb__rays" aria-hidden="true">
+          <span v-if="toggleShownOn" class="ve-bulb__rays" aria-hidden="true">
             <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
           </span>
-          <CdxIcon :icon="cdxIconLightbulb" />
+          <CdxIcon :icon="noSuggestions ? cdxIconLightbulbOutline : cdxIconLightbulb" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
       </CdxToggleButton>
@@ -476,6 +505,25 @@ onBeforeUnmount(() => {
       <CdxIcon :icon="cdxIconCheck" />
     </button>
   </div>
+  <CdxPopover
+    v-model:open="emptyPopoverOpen"
+    class="ve-toolbar__empty-popover"
+    :anchor="toggleRef"
+    placement="bottom"
+    :use-bottom-sheet="false"
+  >
+    There are no suggestions to improve this article for now.
+  </CdxPopover>
+  <CdxToast
+    v-if="emptyToastOpen"
+    :key="emptyToastKey"
+    type="notice"
+    :auto-dismiss="4000"
+    prevent-user-dismiss
+    @auto-dismissed="emptyToastOpen = false"
+  >
+    There are no suggestions to improve this article for now.
+  </CdxToast>
 </template>
 
 <style scoped>
@@ -994,6 +1042,15 @@ onBeforeUnmount(() => {
   width: auto;
 }
 
+/* Minerva, 0 suggestions: the tap only opens the popover, no grey pressed / hover background. */
+.ve-toolbar[data-skin='mobile'] .cdx-toggle-button.ve-toolbar__suggestions--empty:enabled:hover,
+.ve-toolbar[data-skin='mobile'] .cdx-toggle-button.ve-toolbar__suggestions--empty:enabled:active,
+.ve-toolbar[data-skin='mobile'] .cdx-toggle-button.ve-toolbar__suggestions--empty:enabled:focus {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .ve-toolbar[data-skin='mobile'] .ve-bulb__badge {
   font-size: 14px;
   line-height: 14px;
@@ -1073,5 +1130,19 @@ onBeforeUnmount(() => {
   height: 1px;
   margin: 4px 0;
   background: var(--border-color-subtle, #c8ccd1);
+}
+</style>
+
+<style>
+/* "0 suggestions" popover (teleported to body): narrow, like the design. */
+.cdx-popover.ve-toolbar__empty-popover {
+  width: var(--size-1600, 256px);
+}
+
+/* Arrow joins the box seamlessly: extend it past its diagonal, over the box border. */
+.cdx-popover.ve-toolbar__empty-popover .cdx-popover__arrow {
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  clip-path: polygon(0 0, 100% 0, 100% 3px, 3px 100%, 0 100%);
 }
 </style>

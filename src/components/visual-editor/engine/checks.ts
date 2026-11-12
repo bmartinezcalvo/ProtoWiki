@@ -213,6 +213,20 @@ export function detectAddReference(d: DetectContext, citationNeeded: Set<string>
   return out
 }
 
+/** An "Add a citation" suggestion on a given paragraph (used to force a stacked paragraph). */
+export function createAddReferenceFinding(paragraph: Element): Finding {
+  return {
+    id: nextId('addReference'),
+    type: 'addReference',
+    mode: 'suggestion',
+    title: S.addReference.title,
+    descriptionHtml: S.addReference.description,
+    choices: [{ action: 'accept', label: S.addReference.accept }, DISMISS],
+    ranges: [contentsRange(paragraph)],
+    data: { paragraph },
+  }
+}
+
 // ── citationNeeded ───────────────────────────────────────────────────────────
 
 function templateTarget(el: Element): { title: string; params: Record<string, any> } | null {

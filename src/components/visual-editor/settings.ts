@@ -30,6 +30,17 @@ export interface SuggestionSettings {
    * buttons. `2`: no read-mode badge.
    */
   experiment: 1 | 2
+  /**
+   * Unselected highlighted text. `railHighlight`: grey background plus the rail
+   * (the blue / yellow line beside it). `rail`: transparent background, rail only.
+   */
+  highlightStyle: 'railHighlight' | 'rail'
+  /** Suggestion icons: `lightbulb` for every suggestion, or `contextual` icons per category. */
+  suggestionIcons: 'lightbulb' | 'contextual'
+  /** "Show stacked suggestions": at least one paragraph has more than one suggestion. */
+  showStacked: boolean
+  /** Empty state when the toggle is clicked with 0 suggestions: popover under the toggle, or a toast. */
+  emptyState: 'popover' | 'toast'
 }
 
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
@@ -46,6 +57,10 @@ function defaults(): SuggestionSettings {
     rememberedToggle: true,
     hideBeforeYouGo: false,
     experiment: 1,
+    highlightStyle: 'railHighlight',
+    suggestionIcons: 'lightbulb',
+    showStacked: false,
+    emptyState: 'popover',
   }
 }
 

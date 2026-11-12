@@ -130,6 +130,12 @@ const shortfall = computed(
       </div>
     </CdxField>
 
+    <CdxField>
+      <CdxToggleSwitch v-model="suggestionSettings.showStacked"
+        >Show stacked suggestions</CdxToggleSwitch
+      >
+    </CdxField>
+
     <div>
       <CdxButton @click="resetSuggestionSettings">Reset settings</CdxButton>
     </div>
