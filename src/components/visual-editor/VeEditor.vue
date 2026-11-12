@@ -21,6 +21,7 @@ import {
   cdxIconLightbulb,
   cdxIconLightbulbDashed,
   cdxIconSuccess,
+  cdxIconLightbulbOutline,
 } from '@wikimedia/codex-icons'
 
 import FindingBody from './FindingBody.vue'
@@ -131,6 +132,12 @@ const successTitles = reactive(new Map<string, string>())
 /** The publish-path card (first completed suggestion, editors with ≤10 edits). */
 const publishPathId = ref<string | null>(null)
 let publishPathShown = false
+/**
+ * "No more suggestions": the article had suggestions and all of them were
+ * completed or dismissed. Holds the last reviewed suggestion (Vector: the card
+ * takes its place; Minerva: shown in the bottom sheet).
+ */
+const allReviewedId = ref<string | null>(null)
 const dismissingId = ref<string | null>(null)
 /** Blocks whose tone check was declined — not re-flagged this session. */
 const dismissedToneBlocks = new WeakSet<Element>()
@@ -325,7 +332,9 @@ function byPosition(a: Finding, b: Finding): number {
 const displayed = computed<Finding[]>(() => {
   if (review.value) return review.value.items.filter((f) => status.get(f.id) !== 'done' || successIds.has(f.id))
   const transient = [...suggestions.value, ...checks.value].filter(
-    (f) => (successIds.has(f.id) || publishPathId.value === f.id) && status.get(f.id) === 'done',
+    (f) =>
+      ((successIds.has(f.id) || publishPathId.value === f.id) && status.get(f.id) === 'done') ||
+      (!isMobile.value && allReviewedId.value === f.id),
   )
   if (loadingEditor.value) return []
   const visibleSuggestions = suggestionsOn.value
@@ -414,7 +423,13 @@ watch(
  * so with 0 suggestions the article stays centred whether the toggle is on or off.
  */
 const sidebarWanted = computed(
-  () => modeEnabled.value && !loadingEditor.value && !isMobile.value && suggestionsOn.value && (detecting.value || badgeCount.value > 0),
+  () =>
+    modeEnabled.value &&
+    !loadingEditor.value &&
+    !isMobile.value &&
+    suggestionsOn.value &&
+    // "No more suggestions" card keeps the panel open until it is closed.
+    (detecting.value || badgeCount.value > 0 || !!allReviewedId.value),
 )
 watch(sidebarWanted, (open) => emit('sidebar', open))
 // Read mode uses the editor's real count once known: the indicator shows with at
@@ -932,6 +947,51 @@ const dialog = ref<{
   fields?: { key: string; label: string }[]
 } | null>(null)
 
+/** Suggestions completed in this session (for "No more suggestions"). */
+const completedSuggestionCount = computed(
+  () => filteredSuggestions.value.filter((f) => status.get(f.id) === 'done').length,
+)
+const allReviewedText = computed(() => {
+  const n = completedSuggestionCount.value
+  if (n === 0) return 'You’ve reviewed all suggestions in this article. You can now publish your changes or continue editing.'
+  return `You’ve reviewed all suggestions in this article. You can now publish your ${n} ${n === 1 ? 'suggestion' : 'suggestions'} completed or continue editing.`
+})
+
+/** After completing / dismissing a suggestion: was it the last one? Then show "No more suggestions". */
+function showAllReviewedIfDone(f: Finding): boolean {
+  if (f.mode !== 'suggestion' || review.value) return false
+  if (!filteredSuggestions.value.length || pendingSuggestions.value.length) return false
+  allReviewedId.value = f.id
+  if (focusedId.value === f.id) focusedId.value = null
+  if (isMobile.value) {
+    // The last suggestion's sheet closes, then the empty state opens in the sheet.
+    closeSheet()
+    setTimeout(() => {
+      if (allReviewedId.value !== f.id) return
+      sheetMode.value = 'allReviewed'
+      sheetEntering.value = true
+      sheetOpen.value = true
+      nextTick(() => requestAnimationFrame(() => (sheetEntering.value = false)))
+    }, 500)
+  }
+  scheduleLayout()
+  return true
+}
+
+function closeAllReviewed() {
+  allReviewedId.value = null
+  if (isMobile.value) closeSheet()
+  scheduleLayout()
+}
+
+// A suggestion is pending again (settings changed…): drop the empty state.
+watch(
+  () => pendingSuggestions.value.length,
+  (n) => {
+    if (n > 0 && allReviewedId.value) closeAllReviewed()
+  },
+)
+
 function complete(f: Finding, message?: string) {
   status.set(f.id, 'done')
   hasChanges.value = true
@@ -941,6 +1001,7 @@ function complete(f: Finding, message?: string) {
   }
   if (focusedId.value === f.id) focusedId.value = null
   const isSuggestion = f.mode === 'suggestion'
+  if (showAllReviewedIfDone(f)) return
   if (isSuggestion && !publishPathShown && (guided.value || editorShowsPublishPath(editCount.value))) {
     // `showPublishPath`: once, for the first completed suggestion.
     publishPathShown = true
@@ -971,6 +1032,7 @@ function dismiss(f: Finding) {
     setTimeout(() => {
       dismissingId.value = null
       status.set(f.id, 'dismissed')
+      if (showAllReviewedIfDone(f)) return
       closeSheet()
       scheduleLayout()
     }, 260)
@@ -978,6 +1040,7 @@ function dismiss(f: Finding) {
   }
   status.set(f.id, 'dismissed')
   if (focusedId.value === f.id) focusedId.value = null
+  if (showAllReviewedIfDone(f)) return
   scheduleLayout()
 }
 
@@ -1141,7 +1204,7 @@ function onDialogSubmit(value: string) {
 const sheetOpen = ref(false)
 const sheetRef = ref<HTMLElement | null>(null)
 const sheetHeight = ref(0)
-const sheetMode = ref<'finding' | 'publishPath'>('finding')
+const sheetMode = ref<'finding' | 'publishPath' | 'allReviewed'>('finding')
 const sheetEntering = ref(false)
 const rollDirection = ref<'next' | 'prev' | null>(null)
 
@@ -1172,6 +1235,7 @@ function openPublishPathSheet(f: Finding) {
 function closeSheet() {
   sheetOpen.value = false
   if (sheetMode.value === 'publishPath') publishPathId.value = null
+  if (sheetMode.value === 'allReviewed') allReviewedId.value = null
   sheetMode.value = 'finding'
   if (!review.value) focusedId.value = null
 }
@@ -1760,14 +1824,14 @@ const titleFor = (f: Finding) =>
         <div class="ve-editor__highlights" aria-hidden="true">
           <template v-for="f in displayed" :key="f.id">
             <div
-              v-for="(b, i) in boxes.get(f.id) ?? []"
+              v-for="(b, i) in allReviewedId === f.id ? [] : boxes.get(f.id) ?? []"
               :key="i"
               class="ve-hl"
               :class="[`ve-hl--${highlightState(f)}`, `ve-hl--${f.mode}`]"
               :style="{ top: `${b.top}px`, left: `${b.left}px`, width: `${b.width}px`, height: `${b.height}px` }"
             />
             <div
-              v-if="!isMobile && blockBars.get(f.id)"
+              v-if="!isMobile && allReviewedId !== f.id && blockBars.get(f.id)"
               class="ve-hl-bar"
               :class="[`ve-hl-bar--${highlightState(f)}`, `ve-hl-bar--${f.mode}`]"
               :style="{ top: `${blockBars.get(f.id)!.top}px`, height: `${blockBars.get(f.id)!.height}px` }"
@@ -1868,18 +1932,39 @@ const titleFor = (f: Finding) =>
             :ref="(el) => setCardEl(f.id, el)"
             class="ve-card"
             :class="{
-              've-card--expanded': focusedId === f.id || publishPathId === f.id || successIds.has(f.id) || !!review,
+              've-card--expanded':
+                focusedId === f.id || publishPathId === f.id || allReviewedId === f.id || successIds.has(f.id) || !!review,
               've-card--hover': hoverId === f.id,
               've-card--check': f.mode === 'check',
-              've-card--success': successIds.has(f.id) || publishPathId === f.id,
+              've-card--success': successIds.has(f.id) || publishPathId === f.id || allReviewedId === f.id,
               've-card--bounce': bounceCardId === f.id,
             }"
             :style="{ top: `${cardTops.get(f.id) ?? 0}px` }"
             @mouseenter="hoverId = f.id"
             @mouseleave="hoverId = null"
           >
+            <!-- No more suggestions (all reviewed) -->
+            <template v-if="allReviewedId === f.id">
+              <div class="ve-card__header ve-card__header--static">
+                <span class="ve-card__icon ve-card__icon--subtle"><CdxIcon :icon="cdxIconLightbulbOutline" /></span>
+                <span class="ve-card__title ve-card__title--bold">No more suggestions</span>
+                <button type="button" class="ve-card__close" aria-label="Close" @click="closeAllReviewed">
+                  <CdxIcon :icon="cdxIconClose" />
+                </button>
+              </div>
+              <div class="ve-card__content">
+                <p class="ve-card__text">{{ allReviewedText }}</p>
+                <div class="ve-card__actions">
+                  <CdxButton @click="closeAllReviewed">Continue editing</CdxButton>
+                  <CdxButton action="progressive" @click="closeAllReviewed(); publish()">
+                    {{ STR.publish }}
+                  </CdxButton>
+                </div>
+              </div>
+            </template>
+
             <!-- Publish path -->
-            <template v-if="publishPathId === f.id">
+            <template v-else-if="publishPathId === f.id">
               <div class="ve-card__header ve-card__header--static">
                 <span class="ve-card__icon ve-card__icon--success"><CdxIcon :icon="cdxIconSuccess" /></span>
                 <span class="ve-card__title">{{ STR.successSuggestion }}</span>
@@ -1983,14 +2068,26 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: bottom sheet -->
     <div
-      v-if="isMobile && sheetOpen && (sheetFinding || review)"
+      v-if="isMobile && sheetOpen && (sheetFinding || review || sheetMode === 'allReviewed')"
       ref="sheetRef"
       class="ve-sheet"
       :class="{ 've-sheet--check': (review ? currentReview : sheetFinding)?.mode === 'check', 've-sheet--entering': sheetEntering }"
       role="dialog"
       :aria-label="review ? STR.reviewChanges : 'Suggestion'"
     >
-      <template v-if="sheetMode === 'publishPath' && sheetFinding">
+      <template v-if="sheetMode === 'allReviewed'">
+        <div class="ve-sheet__header ve-sheet__header--subtle">
+          <CdxIcon :icon="cdxIconLightbulbOutline" />
+          <div class="ve-sheet__title">No more suggestions</div>
+          <button type="button" class="ve-sheet__icon-btn" aria-label="Close" @click="closeSheet"><CdxIcon :icon="cdxIconClose" /></button>
+        </div>
+        <p class="ve-sheet__text">{{ allReviewedText }}</p>
+        <div class="ve-sheet__actions">
+          <CdxButton @click="closeSheet">View more suggestions</CdxButton>
+          <CdxButton action="progressive" @click="closeSheet(); publish()">{{ STR.publish }}</CdxButton>
+        </div>
+      </template>
+      <template v-else-if="sheetMode === 'publishPath' && sheetFinding">
         <div class="ve-sheet__header ve-sheet__header--success">
           <CdxIcon :icon="cdxIconSuccess" />
           <div class="ve-sheet__title">{{ STR.successSuggestion }}</div>
@@ -2710,6 +2807,29 @@ const titleFor = (f: Finding) =>
 
 .ve-card__icon--success .cdx-icon {
   color: var(--color-success, #14866d);
+}
+
+.ve-card__icon--subtle .cdx-icon,
+.ve-sheet__header--subtle > .cdx-icon {
+  color: var(--color-subtle, #54595d) !important;
+}
+
+.ve-card__title--bold {
+  font-weight: 700;
+}
+
+.ve-card__close {
+  display: inline-flex;
+  margin-left: auto;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--color-base, #202122);
+  cursor: pointer;
+}
+
+.ve-card__close .cdx-icon {
+  color: var(--color-base, #202122);
 }
 
 .ve-card__heading {
