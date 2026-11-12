@@ -147,11 +147,29 @@ const editedPagesText = computed({
             </CdxRadio>
           </CdxField>
           <CdxField is-fieldset>
-            <template #label>Empty state when 0 suggestions</template>
+            <template #label>Empty state in ToggleButton</template>
             <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="popover">
               Popover
             </CdxRadio>
             <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="toast">
+              Toast
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="selectable">
+              Selectable button with 0 in badge
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="nothing">
+              Nothing
+            </CdxRadio>
+          </CdxField>
+          <CdxField is-fieldset>
+            <template #label>Empty state when completed/declined all suggestions</template>
+            <CdxRadio v-model="suggestionSettings.allReviewedState" name="all-reviewed-state" input-value="nothing">
+              Nothing
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.allReviewedState" name="all-reviewed-state" input-value="card">
+              Card
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.allReviewedState" name="all-reviewed-state" input-value="toast">
               Toast
             </CdxRadio>
           </CdxField>

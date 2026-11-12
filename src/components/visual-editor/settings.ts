@@ -39,8 +39,13 @@ export interface SuggestionSettings {
   suggestionIcons: 'lightbulb' | 'contextual'
   /** "Show stacked suggestions": at least one paragraph has more than one suggestion. */
   showStacked: boolean
-  /** Empty state when the toggle is clicked with 0 suggestions: popover under the toggle, or a toast. */
-  emptyState: 'popover' | 'toast'
+  /**
+   * "Empty state in ToggleButton" (0 suggestions): popover under the toggle, a toast,
+   * `selectable` (the toggle turns on / off and shows a "0" badge), or `nothing` (toggle hidden).
+   */
+  emptyState: 'popover' | 'toast' | 'selectable' | 'nothing'
+  /** "Empty state when completed/declined all suggestions": nothing, the "No more suggestions" card, or a toast. */
+  allReviewedState: 'nothing' | 'card' | 'toast'
 }
 
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
@@ -61,6 +66,7 @@ function defaults(): SuggestionSettings {
     suggestionIcons: 'lightbulb',
     showStacked: false,
     emptyState: 'popover',
+    allReviewedState: 'nothing',
   }
 }
 

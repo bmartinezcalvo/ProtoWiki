@@ -138,6 +138,11 @@ let publishPathShown = false
  * takes its place; Minerva: shown in the bottom sheet).
  */
 const allReviewedId = ref<string | null>(null)
+/**
+ * Last suggestion completed: its success state shows with the panel still open
+ * while the toolbar bulb turns empty; once the success state is gone, the panel closes.
+ */
+const finishingLast = ref(false)
 const dismissingId = ref<string | null>(null)
 /** Blocks whose tone check was declined — not re-flagged this session. */
 const dismissedToneBlocks = new WeakSet<Element>()
@@ -429,7 +434,7 @@ const sidebarWanted = computed(
     !isMobile.value &&
     suggestionsOn.value &&
     // "No more suggestions" card keeps the panel open until it is closed.
-    (detecting.value || badgeCount.value > 0 || !!allReviewedId.value),
+    (detecting.value || badgeCount.value > 0 || !!allReviewedId.value || finishingLast.value),
 )
 watch(sidebarWanted, (open) => emit('sidebar', open))
 // Read mode uses the editor's real count once known: the indicator shows with at
@@ -462,8 +467,7 @@ watch(suggestionsOn, (on) => {
     sheetOpen.value = false
     focusedId.value = null
   }
-  // 0 suggestions: no toast, the toolbar shows the "0 suggestions" popover instead.
-  if (badgeCount.value > 0) showToast(on ? STR.suggestionsTurnedOn : STR.suggestionsTurnedOff)
+  // No "Suggestions turned on / off" toasts (removed from the prototypes).
   flashGlow()
   scheduleLayout()
 })
@@ -953,14 +957,32 @@ const completedSuggestionCount = computed(
 )
 const allReviewedText = computed(() => {
   const n = completedSuggestionCount.value
-  if (n === 0) return 'You’ve reviewed all suggestions in this article. You can now publish your changes or continue editing.'
+  if (n === 0) return 'You’ve reviewed all suggestions in this article. You can continue editing.'
   return `You’ve reviewed all suggestions in this article. You can now publish your ${n} ${n === 1 ? 'suggestion' : 'suggestions'} completed or continue editing.`
 })
 
 /** After completing / dismissing a suggestion: was it the last one? Then show "No more suggestions". */
-function showAllReviewedIfDone(f: Finding): boolean {
+/** Was this the article's last suggestion to review? */
+function isLastReviewed(f: Finding): boolean {
   if (f.mode !== 'suggestion' || review.value) return false
-  if (!filteredSuggestions.value.length || pendingSuggestions.value.length) return false
+  return filteredSuggestions.value.length > 0 && pendingSuggestions.value.length === 0
+}
+
+function showAllReviewedIfDone(f: Finding): boolean {
+  if (!isLastReviewed(f)) return false
+  return showAllReviewed(f)
+}
+
+function showAllReviewed(f: Finding): boolean {
+  // "Empty state when completed/declined all suggestions" (Mock settings): nothing, card or toast.
+  // The toolbar lightbulb animates from filled to empty in every case.
+  if (suggestionSettings.allReviewedState !== 'card') {
+    if (focusedId.value === f.id) focusedId.value = null
+    if (isMobile.value) closeSheet()
+    if (suggestionSettings.allReviewedState === 'toast') showToast('No more suggestions', { duration: 4000, immediate: true })
+    scheduleLayout()
+    return true
+  }
   allReviewedId.value = f.id
   if (focusedId.value === f.id) focusedId.value = null
   if (isMobile.value) {
@@ -1001,7 +1023,21 @@ function complete(f: Finding, message?: string) {
   }
   if (focusedId.value === f.id) focusedId.value = null
   const isSuggestion = f.mode === 'suggestion'
-  if (showAllReviewedIfDone(f)) return
+  if (isLastReviewed(f)) {
+    successTitles.set(f.id, message ?? STR.successSuggestion)
+    successIds.add(f.id)
+    finishingLast.value = true
+    holdPill(2000 + PILL_DELAY_MS)
+    if (isMobile.value) closeSheet()
+    setTimeout(() => {
+      successIds.delete(f.id)
+      finishingLast.value = false
+      showAllReviewed(f)
+      scheduleLayout()
+    }, 2000)
+    scheduleLayout()
+    return
+  }
   if (isSuggestion && !publishPathShown && (guided.value || editorShowsPublishPath(editCount.value))) {
     // `showPublishPath`: once, for the first completed suggestion.
     publishPathShown = true
@@ -1038,10 +1074,21 @@ function dismiss(f: Finding) {
     }, 260)
     return
   }
-  status.set(f.id, 'dismissed')
-  if (focusedId.value === f.id) focusedId.value = null
-  if (showAllReviewedIfDone(f)) return
-  scheduleLayout()
+  if (review.value) {
+    status.set(f.id, 'dismissed')
+    if (focusedId.value === f.id) focusedId.value = null
+    scheduleLayout()
+    return
+  }
+  // Vector: the card fades out while sliding off to the right, then it's removed.
+  dismissingId.value = f.id
+  setTimeout(() => {
+    dismissingId.value = null
+    status.set(f.id, 'dismissed')
+    if (focusedId.value === f.id) focusedId.value = null
+    if (showAllReviewedIfDone(f)) return
+    scheduleLayout()
+  }, 100)
 }
 
 /** Scroll to a suggestion and open it (desktop card / mobile sheet). */
@@ -1557,6 +1604,9 @@ onMounted(async () => {
   resizeObserver.observe(surface)
   const detection = runDetection()
   if (discoverability && isMobile.value) await discoverabilityLoading(detection)
+  // Vector: stay in the loading state until suggestions are found, so the editor
+  // opens with them (no empty outline lightbulb while they load).
+  else if (!isMobile.value) await Promise.all([minimumLoad, detection])
   else await minimumLoad
   loadingEditor.value = false
   if (!isMobile.value && props.section) nextTick(() => scrollToSection(props.section!))
@@ -1859,7 +1909,7 @@ const titleFor = (f: Finding) =>
         />
 
         <!-- Mobile gutter -->
-        <div v-if="isMobile && ((suggestionsOn && (detecting || badgeCount > 0)) || pendingChecks.length)" class="ve-gutter" aria-hidden="false">
+        <div v-if="isMobile && ((suggestionsOn && (detecting || badgeCount > 0 || finishingLast)) || pendingChecks.length)" class="ve-gutter" aria-hidden="false">
           <button
             v-for="mark in gutterMarks"
             :key="mark.ids.join()"
@@ -1938,6 +1988,7 @@ const titleFor = (f: Finding) =>
               've-card--check': f.mode === 'check',
               've-card--success': successIds.has(f.id) || publishPathId === f.id || allReviewedId === f.id,
               've-card--bounce': bounceCardId === f.id,
+              've-card--dismiss': dismissingId === f.id,
             }"
             :style="{ top: `${cardTops.get(f.id) ?? 0}px` }"
             @mouseenter="hoverId = f.id"
@@ -1956,7 +2007,7 @@ const titleFor = (f: Finding) =>
                 <p class="ve-card__text">{{ allReviewedText }}</p>
                 <div class="ve-card__actions">
                   <CdxButton @click="closeAllReviewed">Continue editing</CdxButton>
-                  <CdxButton action="progressive" @click="closeAllReviewed(); publish()">
+                  <CdxButton v-if="completedSuggestionCount" action="progressive" @click="closeAllReviewed(); publish()">
                     {{ STR.publish }}
                   </CdxButton>
                 </div>
@@ -2083,8 +2134,8 @@ const titleFor = (f: Finding) =>
         </div>
         <p class="ve-sheet__text">{{ allReviewedText }}</p>
         <div class="ve-sheet__actions">
-          <CdxButton @click="closeSheet">View more suggestions</CdxButton>
-          <CdxButton action="progressive" @click="closeSheet(); publish()">{{ STR.publish }}</CdxButton>
+          <CdxButton @click="closeSheet">{{ completedSuggestionCount ? 'View more suggestions' : 'Continue editing' }}</CdxButton>
+          <CdxButton v-if="completedSuggestionCount" action="progressive" @click="closeSheet(); publish()">{{ STR.publish }}</CdxButton>
         </div>
       </template>
       <template v-else-if="sheetMode === 'publishPath' && sheetFinding">
@@ -2696,6 +2747,18 @@ const titleFor = (f: Finding) =>
   bottom: 0;
   left: calc(100% + 24px);
   width: 325px;
+}
+
+.ve-card--dismiss {
+  pointer-events: none;
+  animation: ve-card-dismiss 100ms ease-in forwards;
+}
+
+@keyframes ve-card-dismiss {
+  to {
+    opacity: 0;
+    translate: 120px 0;
+  }
 }
 
 .ve-card {

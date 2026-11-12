@@ -80,8 +80,38 @@ const emit = defineEmits<{
 
 /** No suggestions: the toggle looks off (no badge, no rays) whether on or off. */
 const noSuggestions = computed(() => props.count === 0)
+/** "Selectable button with 0 in badge": with 0 suggestions the toggle still turns on / off. */
+const selectableEmpty = computed(() => noSuggestions.value && suggestionSettings.emptyState === 'selectable')
 /** What the toggle shows as pressed. */
-const toggleShownOn = computed(() => props.suggestionsOn && !noSuggestions.value)
+const toggleShownOn = computed(() => props.suggestionsOn && (!noSuggestions.value || selectableEmpty.value))
+/** On with 0 suggestions (selectable mode): subtle icon and a "0" badge. */
+const zeroOn = computed(() => selectableEmpty.value && props.suggestionsOn)
+
+/**
+ * All suggestions reviewed: the lightbulb swaps from filled to empty. `draining`
+ * briefly keeps the toggle in place before "Nothing" hides it.
+ */
+const draining = ref(false)
+const drainFilled = ref(false)
+let drainTimers: ReturnType<typeof setTimeout>[] = []
+watch(noSuggestions, (empty, wasEmpty) => {
+  if (props.loading || !empty || wasEmpty !== false) return
+  drainTimers.forEach(clearTimeout)
+  draining.value = true
+  drainFilled.value = true
+  // Straight swap from filled to empty (no bounce).
+  drainFilled.value = false
+  drainTimers = [setTimeout(() => (draining.value = false), 300)]
+})
+/** Filled bulb: there are suggestions, or the bounce hasn't reached the swap yet. */
+const bulbFilled = computed(() => !noSuggestions.value || drainFilled.value)
+
+/** "Empty state in ToggleButton" → Nothing: no toggle with 0 suggestions (it leaves after the drain). */
+const toggleVisible = computed(
+  () =>
+    props.showSuggestionsToggle &&
+    !(suggestionSettings.emptyState === 'nothing' && noSuggestions.value && !draining.value),
+)
 
 /** "0 suggestions" popover, shown when turning suggestions on with none to show. */
 const emptyPopoverOpen = ref(false)
@@ -99,8 +129,9 @@ watch(emptyPopoverOpen, (open) => {
 })
 
 function onToggle() {
-  // No suggestions: nothing to turn on or off, the click only shows the empty state.
-  if (noSuggestions.value) {
+  // No suggestions: nothing to turn on or off, the click only shows the empty state
+  // (except "Selectable button with 0 in badge", which toggles as usual, silently).
+  if (noSuggestions.value && !selectableEmpty.value) {
     if (suggestionSettings.emptyState === 'toast') {
       if (props.skin === 'mobile') {
         emit('emptyToast')
@@ -119,7 +150,7 @@ function onToggle() {
 
 /** editcheck-toolbar-suggestions-count: {{PLURAL:$1|$1|100=99+}} */
 const badgeLabel = computed(() => (props.count >= 100 ? '99+' : String(props.count)))
-const showBadge = computed(() => props.count > 0)
+const showBadge = computed(() => props.count > 0 || zeroOn.value)
 
 /**
  * Desktop loading bar (`ve.init.mw.ProgressBarWidget`): fills 30% → 70% → 100%
@@ -343,25 +374,31 @@ onBeforeUnmount(() => {
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Help">
         <CdxIcon :icon="cdxIconHelp" />
       </button>
+      <Transition name="ve-toggle-out">
       <CdxToggleButton
-        v-if="showSuggestionsToggle"
+        v-if="toggleVisible"
         :model-value="toggleShownOn"
         quiet
         class="ve-toolbar__suggestions"
-        :class="{ 've-toolbar__suggestions--on': toggleShownOn }"
+        :class="{
+          've-toolbar__suggestions--on': toggleShownOn,
+          've-toolbar__suggestions--zero': zeroOn,
+          've-toolbar__suggestions--selectable-empty': selectableEmpty,
+        }"
         ref="toggleRef"
         @update:model-value="onToggle"
         :aria-label="STR.toggleSuggestions"
         :title="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="toggleShownOn" class="ve-bulb__rays" aria-hidden="true">
+          <span v-if="toggleShownOn && !noSuggestions" class="ve-bulb__rays" aria-hidden="true">
             <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
           </span>
-          <CdxIcon :icon="noSuggestions ? cdxIconLightbulbOutline : cdxIconLightbulb" />
+          <CdxIcon :icon="bulbFilled ? cdxIconLightbulb : cdxIconLightbulbOutline" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
       </CdxToggleButton>
+      </Transition>
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Page options">
         <CdxIcon :icon="cdxIconMenu" />
       </button>
@@ -456,24 +493,31 @@ onBeforeUnmount(() => {
           </template>
         </div>
       </div>
+      <Transition name="ve-toggle-out">
       <CdxToggleButton
-        v-if="showSuggestionsToggle"
+        v-if="toggleVisible"
         :model-value="toggleShownOn"
         quiet
         class="ve-toolbar__suggestions ve-toolbar__btn--fill"
-        :class="{ 've-toolbar__suggestions--on': toggleShownOn, 've-toolbar__suggestions--empty': noSuggestions }"
+        :class="{
+          've-toolbar__suggestions--on': toggleShownOn,
+          've-toolbar__suggestions--zero': zeroOn,
+          've-toolbar__suggestions--selectable-empty': selectableEmpty,
+          've-toolbar__suggestions--empty': noSuggestions && !selectableEmpty,
+        }"
         ref="toggleRef"
         @update:model-value="onToggle"
         :aria-label="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="toggleShownOn" class="ve-bulb__rays" aria-hidden="true">
+          <span v-if="toggleShownOn && !noSuggestions" class="ve-bulb__rays" aria-hidden="true">
             <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
           </span>
-          <CdxIcon :icon="noSuggestions ? cdxIconLightbulbOutline : cdxIconLightbulb" />
+          <CdxIcon :icon="bulbFilled ? cdxIconLightbulb : cdxIconLightbulbOutline" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
       </CdxToggleButton>
+      </Transition>
       <div class="ve-toolbar__menu-wrap ve-toolbar__btn--fill">
         <button
           class="ve-toolbar__btn ve-toolbar__menu-trigger"
@@ -974,6 +1018,53 @@ onBeforeUnmount(() => {
   background: var(--background-color-progressive-subtle, #e8eeff);
   color: var(--color-progressive, #36c);
   border-color: var(--border-color-progressive, #36c);
+}
+
+/* "Empty state in ToggleButton" → Nothing: the toggle shrinks away once empty. */
+.ve-toggle-out-leave-active {
+  overflow: hidden;
+  animation: ve-toggle-out 320ms ease-in forwards;
+}
+
+@keyframes ve-toggle-out {
+  from {
+    opacity: 1;
+    max-width: 48px;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    max-width: 0;
+    min-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    transform: scale(0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ve-toggle-out-leave-active {
+    animation-duration: 1ms;
+  }
+}
+
+/* "Selectable button with 0 in badge" with 0 suggestions: progressive-subtle when on. */
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled,
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:hover,
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:active {
+  background-color: var(--background-color-progressive-subtle, #e8eeff);
+}
+
+/* On with 0 suggestions ("Selectable button with 0 in badge"): subtle icon and "0" badge. */
+.ve-toolbar__suggestions--zero .cdx-icon {
+  color: var(--color-subtle, #54595d);
+  animation: none;
+}
+
+.ve-toolbar__suggestions.ve-toolbar__suggestions--zero .ve-bulb__badge {
+  background: var(--background-color-progressive-subtle, #e8eeff);
+  color: var(--color-subtle, #54595d);
+  border-color: var(--border-color-disabled, #c8ccd1);
 }
 
 /* Minerva */
