@@ -155,7 +155,7 @@ const editedPagesText = computed({
               Toast
             </CdxRadio>
             <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="selectable">
-              Selectable button with 0 in badge
+              Empty button with 0 badge
             </CdxRadio>
             <CdxRadio v-model="suggestionSettings.emptyState" name="empty-state" input-value="nothing">
               Nothing

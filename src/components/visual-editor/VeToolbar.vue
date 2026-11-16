@@ -80,7 +80,7 @@ const emit = defineEmits<{
 
 /** No suggestions: the toggle looks off (no badge, no rays) whether on or off. */
 const noSuggestions = computed(() => props.count === 0)
-/** "Selectable button with 0 in badge": with 0 suggestions the toggle still turns on / off. */
+/** "Empty button with 0 badge": with 0 suggestions the toggle still turns on / off. */
 const selectableEmpty = computed(() => noSuggestions.value && suggestionSettings.emptyState === 'selectable')
 /** What the toggle shows as pressed. */
 const toggleShownOn = computed(() => props.suggestionsOn && (!noSuggestions.value || selectableEmpty.value))
@@ -130,7 +130,7 @@ watch(emptyPopoverOpen, (open) => {
 
 function onToggle() {
   // No suggestions: nothing to turn on or off, the click only shows the empty state
-  // (except "Selectable button with 0 in badge", which toggles as usual, silently).
+  // (except "Empty button with 0 badge", which toggles as usual, silently).
   if (noSuggestions.value && !selectableEmpty.value) {
     if (suggestionSettings.emptyState === 'toast') {
       if (props.skin === 'mobile') {
@@ -391,9 +391,11 @@ onBeforeUnmount(() => {
         :title="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="toggleShownOn && !noSuggestions" class="ve-bulb__rays" aria-hidden="true">
-            <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
-          </span>
+          <span
+            class="ve-bulb__rays"
+            :class="{ 've-bulb__rays--on': toggleShownOn && (!noSuggestions || zeroOn) }"
+            aria-hidden="true"
+          />
           <CdxIcon :icon="bulbFilled ? cdxIconLightbulb : cdxIconLightbulbOutline" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
@@ -510,9 +512,11 @@ onBeforeUnmount(() => {
         :aria-label="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="toggleShownOn && !noSuggestions" class="ve-bulb__rays" aria-hidden="true">
-            <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
-          </span>
+          <span
+            class="ve-bulb__rays"
+            :class="{ 've-bulb__rays--on': toggleShownOn && (!noSuggestions || zeroOn) }"
+            aria-hidden="true"
+          />
           <CdxIcon :icon="bulbFilled ? cdxIconLightbulb : cdxIconLightbulbOutline" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
@@ -939,56 +943,30 @@ onBeforeUnmount(() => {
   height: 20px;
 }
 
+/* Rays: same element as production VisualEditor (Edit Check `lightbulb-rays.svg`, 26×32,
+   centred over the 20px icon in a 26×32 box; grows from 50% and fades in over 250ms). Used as a mask so
+   the colour can follow the state. */
 .ve-bulb__rays {
   position: absolute;
-  inset: 0;
+  top: -6px;
+  bottom: -6px;
+  left: -3px;
+  right: -3px;
   pointer-events: none;
-}
-
-.ve-bulb__ray {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 2px;
-  height: 3px;
   background-color: var(--color-progressive, #36c);
-  border-radius: 0.5px;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='32' viewBox='0 0 26 32'%3E%3Cpath d='m12 0v3h2v-3h-2zm-7.4844 3.0996-1.416 1.416 2.123 2.1211 1.4141-1.4141-2.1211-2.123zm16.969 0-2.1211 2.123 1.4141 1.4141 2.123-2.1211-1.416-1.416zm-21.484 8.9004v2h3v-2h-3zm23 0v2h3v-2h-3z'/%3E%3C/svg%3E")
+    50% 50% / 50% auto no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='32' viewBox='0 0 26 32'%3E%3Cpath d='m12 0v3h2v-3h-2zm-7.4844 3.0996-1.416 1.416 2.123 2.1211 1.4141-1.4141-2.1211-2.123zm16.969 0-2.1211 2.123 1.4141 1.4141 2.123-2.1211-1.416-1.416zm-21.484 8.9004v2h3v-2h-3zm23 0v2h3v-2h-3z'/%3E%3C/svg%3E")
+    50% 50% / 50% auto no-repeat;
   opacity: 0;
-  animation: ve-ray-in 0.3s ease-out forwards;
+  transition-property: -webkit-mask-size, mask-size, opacity;
+  transition-duration: var(--transition-duration-medium, 250ms);
 }
 
-.ve-bulb__ray--1 {
-  transform: translate(-50%, -50%) rotate(-60deg) translateY(-13px);
-}
-.ve-bulb__ray--2 {
-  transform: translate(-50%, -50%) rotate(-30deg) translateY(-12.5px);
-  animation-delay: 0.05s;
-}
-.ve-bulb__ray--3 {
-  transform: translate(-50%, -50%) rotate(0deg) translateY(-12px);
-  animation-delay: 0.1s;
-}
-.ve-bulb__ray--4 {
-  transform: translate(-50%, -50%) rotate(30deg) translateY(-12.5px);
-  animation-delay: 0.15s;
-}
-.ve-bulb__ray--5 {
-  transform: translate(-50%, -50%) rotate(60deg) translateY(-13px);
-  animation-delay: 0.2s;
-}
-
-@keyframes ve-ray-in {
-  0% {
-    opacity: 0;
-    height: 2px;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 1;
-    height: 3px;
-  }
+.ve-bulb__rays--on {
+  -webkit-mask-size: 100% auto;
+  mask-size: 100% auto;
+  opacity: 1;
 }
 
 .ve-bulb__badge {
@@ -1048,23 +1026,31 @@ onBeforeUnmount(() => {
   }
 }
 
-/* "Selectable button with 0 in badge" with 0 suggestions: neutral grey when on. */
-.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled,
-.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:hover,
-.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:active {
+/* "Empty button with 0 badge" with 0 suggestions, on: no fill, outline bulb with rays,
+   icon, rays and "0" badge in the base colour with a black badge border. */
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled {
+  background-color: transparent;
+}
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:hover {
   background-color: var(--background-color-interactive-subtle--hover, #eaecf0);
 }
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:active {
+  background-color: var(--background-color-interactive-subtle--active, #dadde3);
+}
 
-/* On with 0 suggestions ("Selectable button with 0 in badge"): subtle icon and "0" badge. */
 .ve-toolbar__suggestions--zero .cdx-icon {
-  color: var(--color-subtle, #54595d);
+  color: var(--color-base, #202122);
   animation: none;
 }
 
+.ve-toolbar__suggestions--zero .ve-bulb__rays {
+  background-color: var(--color-base, #202122);
+}
+
 .ve-toolbar__suggestions.ve-toolbar__suggestions--zero .ve-bulb__badge {
-  background: var(--background-color-interactive-subtle--hover, #eaecf0);
-  color: var(--color-subtle, #54595d);
-  border-color: var(--border-color-disabled, #c8ccd1);
+  background: var(--background-color-base, #fff);
+  color: var(--color-base, #202122);
+  border-color: #000;
 }
 
 /* Minerva */
