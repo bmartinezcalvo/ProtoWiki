@@ -65,7 +65,7 @@ function defaults(): SuggestionSettings {
     highlightStyle: 'railHighlight',
     suggestionIcons: 'lightbulb',
     showStacked: false,
-    emptyState: 'popover',
+    emptyState: 'selectable',
     allReviewedState: 'nothing',
   }
 }

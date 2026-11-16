@@ -1062,7 +1062,7 @@ function complete(f: Finding, message?: string) {
 
 function dismiss(f: Finding) {
   if (f.type === 'tone' && f.data?.block) dismissedToneBlocks.add(f.data.block)
-  holdPill(isMobile.value && !review.value ? 260 + PILL_DELAY_MS : PILL_DELAY_MS)
+  holdPill(isMobile.value && !review.value ? 250 + PILL_DELAY_MS : PILL_DELAY_MS)
   if (isMobile.value && !review.value) {
     dismissingId.value = f.id
     setTimeout(() => {
@@ -1071,7 +1071,7 @@ function dismiss(f: Finding) {
       if (showAllReviewedIfDone(f)) return
       closeSheet()
       scheduleLayout()
-    }, 260)
+    }, 250)
     return
   }
   if (review.value) {
@@ -2751,7 +2751,7 @@ const titleFor = (f: Finding) =>
 
 .ve-card--dismiss {
   pointer-events: none;
-  animation: ve-card-dismiss 100ms ease-in forwards;
+  animation: ve-card-dismiss var(--transition-duration-base, 100ms) var(--transition-timing-function-user, ease-out) forwards;
 }
 
 @keyframes ve-card-dismiss {
@@ -2770,7 +2770,7 @@ const titleFor = (f: Finding) =>
   border-radius: var(--border-radius-base, 2px);
   overflow: hidden;
   transition:
-    top 250ms ease,
+    top var(--transition-duration-medium, 250ms) var(--transition-timing-function-system, ease),
     border-color 0.2s ease,
     box-shadow 0.2s ease;
   user-select: none;
@@ -3309,7 +3309,7 @@ const titleFor = (f: Finding) =>
 }
 
 .ve-sheet__body--dismiss {
-  animation: ve-dismiss-right 260ms ease forwards;
+  animation: ve-dismiss-right var(--transition-duration-medium, 250ms) var(--transition-timing-function-user, ease-out) forwards;
 }
 
 @keyframes ve-dismiss-right {

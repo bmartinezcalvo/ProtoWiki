@@ -1048,11 +1048,11 @@ onBeforeUnmount(() => {
   }
 }
 
-/* "Selectable button with 0 in badge" with 0 suggestions: progressive-subtle when on. */
+/* "Selectable button with 0 in badge" with 0 suggestions: neutral grey when on. */
 .ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled,
 .ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:hover,
 .ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:active {
-  background-color: var(--background-color-progressive-subtle, #e8eeff);
+  background-color: var(--background-color-interactive-subtle--hover, #eaecf0);
 }
 
 /* On with 0 suggestions ("Selectable button with 0 in badge"): subtle icon and "0" badge. */
@@ -1062,7 +1062,7 @@ onBeforeUnmount(() => {
 }
 
 .ve-toolbar__suggestions.ve-toolbar__suggestions--zero .ve-bulb__badge {
-  background: var(--background-color-progressive-subtle, #e8eeff);
+  background: var(--background-color-interactive-subtle--hover, #eaecf0);
   color: var(--color-subtle, #54595d);
   border-color: var(--border-color-disabled, #c8ccd1);
 }
