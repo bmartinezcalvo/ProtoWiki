@@ -46,6 +46,14 @@ export interface SuggestionSettings {
   emptyState: 'popover' | 'toast' | 'selectable' | 'nothing'
   /** "Empty state when completed/declined all suggestions": nothing, the "No more suggestions" card, or a toast. */
   allReviewedState: 'nothing' | 'card' | 'toast'
+  /**
+   * Minerva — "Prominence between highlighted text and bottom sheet": `nothing` (as is) or
+   * `overlay` (a light backdrop covers everything but the selected block, the highlight wipes in),
+   * `proximityOnly` ("Proximity": the selected text scrolls to sit 40px above the sheet), or
+   * `proximity` ("Proximity + other changes": same, plus a sheet tinted by suggestion/check, small
+   * quiet rail buttons and a thinner rail line when unselected).
+   */
+  sheetProminence: 'nothing' | 'overlay' | 'proximity' | 'proximityOnly'
 }
 
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
@@ -67,6 +75,7 @@ function defaults(): SuggestionSettings {
     showStacked: false,
     emptyState: 'selectable',
     allReviewedState: 'nothing',
+    sheetProminence: 'proximityOnly',
   }
 }
 
@@ -93,6 +102,8 @@ function load(): SuggestionSettings {
       // The master switch is no longer exposed in the settings; always on.
       enabled: true,
       types: { ...base.types, ...(rest?.types ?? {}) },
+      // Renamed option ("Gradient behind bottom sheet" → "Proximity").
+      sheetProminence: rest?.sheetProminence === 'gradient' ? 'proximity' : (rest?.sheetProminence ?? base.sheetProminence),
     }
   } catch {
     return base

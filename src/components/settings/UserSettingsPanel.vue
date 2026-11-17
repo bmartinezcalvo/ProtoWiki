@@ -173,6 +173,22 @@ const editedPagesText = computed({
               Toast
             </CdxRadio>
           </CdxField>
+          <CdxField is-fieldset>
+            <template #label>Prominence between highlighted text and bottom sheet</template>
+            <template #description>Minerva only</template>
+            <CdxRadio v-model="suggestionSettings.sheetProminence" name="sheet-prominence" input-value="nothing">
+              Nothing
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.sheetProminence" name="sheet-prominence" input-value="overlay">
+              Overlay when opening a suggestion
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.sheetProminence" name="sheet-prominence" input-value="proximity">
+              Proximity + other changes
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.sheetProminence" name="sheet-prominence" input-value="proximityOnly">
+              Proximity
+            </CdxRadio>
+          </CdxField>
         </div>
       </CdxTab>
     </CdxTabs>

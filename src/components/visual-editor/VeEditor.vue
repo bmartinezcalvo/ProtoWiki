@@ -532,7 +532,38 @@ function measure() {
   }
   boxes.value = next
   blockBars.value = bars
+  measureVeil()
   nextTick(layoutCards)
+}
+
+// ── Minerva "Overlay when opening a suggestion" (Mock settings → Prominence…) ──
+// A light backdrop covers everything except the block of the open suggestion / check,
+// so that block is the only part left to edit. Tapping the backdrop closes the sheet.
+
+const veilActive = computed(
+  () =>
+    isMobile.value &&
+    !review.value &&
+    suggestionSettings.sheetProminence === 'overlay' &&
+    sheetOpen.value &&
+    sheetMode.value === 'finding' &&
+    !!sheetFinding.value,
+)
+/** The uncovered band (relative to the surface wrap): the selected block plus a little air. */
+const veilBand = ref<{ top: number; bottom: number } | null>(null)
+const VEIL_PADDING = 8
+
+function measureVeil() {
+  const f = veilActive.value ? sheetFinding.value : null
+  const wrap = wrapRef.value
+  const block = f ? blockOf(f.element ?? f.ranges[0]?.startContainer ?? null) : null
+  if (!f || !wrap || !block) {
+    veilBand.value = null
+    return
+  }
+  const origin = wrap.getBoundingClientRect()
+  const r = block.getBoundingClientRect()
+  veilBand.value = { top: r.top - origin.top - VEIL_PADDING, bottom: r.bottom - origin.top + VEIL_PADDING }
 }
 
 let layoutTimer: ReturnType<typeof setTimeout> | undefined
@@ -688,12 +719,31 @@ function updateViewport() {
   else offscreenDirection.value = nearestAbove !== -Infinity ? 'up' : null
 }
 
+/** Minerva "Proximity" (and "Proximity + other changes"): selected text sits 40px above the sheet. */
+const proximityMode = computed(
+  () => isMobile.value && (suggestionSettings.sheetProminence === 'proximity' || suggestionSettings.sheetProminence === 'proximityOnly'),
+)
+/** "Proximity + other changes": also tinted sheet, small quiet rail buttons, thinner unselected rail. */
+const proximityStyled = computed(() => isMobile.value && suggestionSettings.sheetProminence === 'proximity')
+const SHEET_GAP = 40
+
 function scrollToFinding(f: Finding, block: ScrollLogicalPosition = 'center') {
   const el = f.element ?? f.ranges[0].startContainer.parentElement
   if (!el) return
   if (isMobile.value) {
     const rect = (f.element ?? f.ranges[0]).getBoundingClientRect()
     const usable = Math.max(160, window.innerHeight - (sheetHeight.value || 220))
+    if (proximityMode.value) {
+      // Sit the selected text as close to the sheet as possible; a block taller than the space left aligns to the top instead.
+      const fromBottom = usable - SHEET_GAP - rect.height
+      const desired = fromBottom >= 72 ? fromBottom : 72
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight
+      const target = Math.round(Math.min(maxScroll, Math.max(0, rect.top + window.scrollY - desired)))
+      window.scrollTo({ top: target, behavior: 'smooth' })
+      wipeScrollTarget = target
+      setTimeout(checkWipe, 0)
+      return
+    }
     const desired = Math.max(72, Math.min(usable * 0.36, usable - 96))
     window.scrollTo({ top: Math.max(0, rect.top + window.scrollY - desired), behavior: 'smooth' })
     return
@@ -790,8 +840,10 @@ function onSurfaceClick(e: MouseEvent) {
   const hit = findingAtPoint(e.clientX, e.clientY, e.target)
   if ((e.target as Element).closest('a')) e.preventDefault()
   if (hit) {
-    if (isMobile.value && sheetOpen.value && focusedId.value === hit.id) closeSheet()
-    else focus(hit)
+    // With the overlay on, the open suggestion's text is where you edit: tapping it keeps the sheet.
+    if (isMobile.value && sheetOpen.value && focusedId.value === hit.id) {
+      if (!veilActive.value) closeSheet()
+    } else focus(hit)
   }
 }
 
@@ -1253,6 +1305,15 @@ const sheetRef = ref<HTMLElement | null>(null)
 const sheetHeight = ref(0)
 const sheetMode = ref<'finding' | 'publishPath' | 'allReviewed'>('finding')
 const sheetEntering = ref(false)
+let sheetObserver: ResizeObserver | null = null
+watch(sheetRef, (el) => {
+  sheetObserver?.disconnect()
+  sheetObserver = null
+  if (!el) return
+  sheetObserver = new ResizeObserver(() => (sheetHeight.value = el.offsetHeight))
+  sheetObserver.observe(el)
+})
+onBeforeUnmount(() => sheetObserver?.disconnect())
 const rollDirection = ref<'next' | 'prev' | null>(null)
 
 const sheetFinding = computed(() =>
@@ -1267,7 +1328,7 @@ function openSheet(f: Finding) {
     sheetHeight.value = sheetRef.value?.offsetHeight ?? 0
     const rect = (f.element ?? f.ranges[0]).getBoundingClientRect()
     const sheetTop = window.innerHeight - sheetHeight.value
-    if (!(rect.top >= 56 && rect.bottom <= sheetTop - 16)) scrollToFinding(f)
+    if (proximityMode.value || !(rect.top >= 56 && rect.bottom <= sheetTop - 16)) scrollToFinding(f)
   })
 }
 
@@ -1327,6 +1388,8 @@ const gutterMarks = computed(() => {
   if (!isMobile.value) return []
   const marks: {
     top: number
+    /** Bottom of the rail: the highlighted lines, or the whole paragraph when suggestions stack. */
+    bottom: number
     ids: string[]
     state: 'pending' | 'success' | 'check'
     experimental: boolean
@@ -1337,6 +1400,7 @@ const gutterMarks = computed(() => {
     const list = boxes.value.get(f.id)
     if (!list?.length) continue
     const top = Math.min(...list.map((b) => b.top))
+    const bottom = Math.max(...list.map((b) => b.top + b.height))
     const completed = successIds.has(f.id) || (publishPathId.value === f.id && status.get(f.id) === 'done')
     const state = completed ? 'success' : f.mode === 'check' ? 'check' : 'pending'
     // Stacked: suggestions in the same block (paragraph) share one rail icon with a count.
@@ -1344,10 +1408,19 @@ const gutterMarks = computed(() => {
     const existing = marks.find((m) => (block && m.block === block) || Math.abs(m.top - top) < 20)
     if (existing) {
       existing.top = Math.min(existing.top, top)
+      existing.bottom = Math.max(existing.bottom, bottom)
       existing.ids.push(f.id)
       if (state === 'check') existing.state = 'check'
       existing.experimental = existing.experimental && !!f.experimental
-    } else marks.push({ top, ids: [f.id], state, experimental: !!f.experimental, type: f.type, block })
+    } else marks.push({ top, bottom, ids: [f.id], state, experimental: !!f.experimental, type: f.type, block })
+  }
+  // Several suggestions in one paragraph: the rail spans the whole paragraph (as in production).
+  const origin = wrapRef.value?.getBoundingClientRect()
+  for (const m of marks) {
+    if (m.ids.length < 2 || !m.block || !origin) continue
+    const r = m.block.getBoundingClientRect()
+    m.top = Math.min(m.top, r.top - origin.top)
+    m.bottom = Math.max(m.bottom, r.bottom - origin.top)
   }
   return marks
 })
@@ -1630,6 +1703,81 @@ onBeforeUnmount(() => {
 
 watch(displayed, () => scheduleLayout())
 watch([focusedId, () => successIds.size, publishPathId], () => nextTick(layoutCards))
+watch([veilActive, focusedId], () => nextTick(measureVeil))
+
+// ── Minerva "Proximity": the selected highlight wipes in left to right once the scroll ends ──
+const wipe = ref<{ id: string; phase: 'pending' | 'run' } | null>(null)
+/** Where the scroll to the selected suggestion lands (set by scrollToFinding). */
+let wipeScrollTarget: number | null = null
+let cancelWipeWait: (() => void) | null = null
+
+/** Start the wipe once the page has reached the suggestion (or right away if no scroll was needed). */
+function checkWipe(event?: Event) {
+  const w = wipe.value
+  if (!w || w.phase !== 'pending' || wipeScrollTarget === null) return
+  if (Math.abs(window.scrollY - wipeScrollTarget) < 2 || event?.type === 'scrollend') runWipe()
+}
+function runWipe() {
+  cancelWipeWait?.()
+  if (wipe.value?.phase === 'pending') wipe.value = { id: wipe.value.id, phase: 'run' }
+}
+
+/**
+ * Line-by-line wipe: each line starts once the one above is mostly drawn (the ease-out curve
+ * fills ~85% in its first third), so the highlight flows from the top down. Pieces of the same
+ * line (around links…) start in turn from left to right. Long paragraphs squeeze the step so
+ * the whole wipe stays around a second.
+ */
+const WIPE_STEP = 120
+const WIPE_MAX_STAGGER = 800
+const wipeDelays = computed<number[]>(() => {
+  const list = wipe.value ? boxes.value.get(wipe.value.id) ?? [] : []
+  if (list.length < 2) return list.map(() => 0)
+  // Group the boxes into visual lines by their vertical centre.
+  const centres = [...new Set(list.map((b) => Math.round(b.top + b.height / 2)))].sort((a, b) => a - b)
+  const lines: number[] = []
+  for (const c of centres) if (!lines.length || c - lines[lines.length - 1] > 4) lines.push(c)
+  const lineOf = (b: Box) => {
+    const c = b.top + b.height / 2
+    return lines.reduce((best, l, i) => (Math.abs(l - c) < Math.abs(lines[best] - c) ? i : best), 0)
+  }
+  const step = lines.length > 1 ? Math.min(WIPE_STEP, WIPE_MAX_STAGGER / (lines.length - 1)) : WIPE_STEP
+  return list.map((b) => {
+    const line = lineOf(b)
+    const same = list.filter((o) => lineOf(o) === line)
+    const left = Math.min(...same.map((o) => o.left))
+    const right = Math.max(...same.map((o) => o.left + o.width))
+    const along = right > left ? (b.left - left) / (right - left) : 0
+    return Math.round(line * step + along * step)
+  })
+})
+
+function armWipe(id: string) {
+  cancelWipeWait?.()
+  wipe.value = { id, phase: 'pending' }
+  wipeScrollTarget = null
+  const cap = setTimeout(runWipe, 1500)
+  window.addEventListener('scroll', checkWipe, { passive: true })
+  window.addEventListener('scrollend', checkWipe)
+  cancelWipeWait = () => {
+    clearTimeout(cap)
+    window.removeEventListener('scroll', checkWipe)
+    window.removeEventListener('scrollend', checkWipe)
+    cancelWipeWait = null
+  }
+}
+
+watch(
+  () => (proximityMode.value && sheetOpen.value && sheetMode.value === 'finding' && !review.value ? focusedId.value : null),
+  (id) => {
+    if (id) armWipe(id)
+    else {
+      cancelWipeWait?.()
+      wipe.value = null
+    }
+  },
+)
+onBeforeUnmount(() => cancelWipeWait?.())
 watch(boxes, () => updateViewport())
 
 // ── Suggestions discoverability ──────────────────────────────────────────────
@@ -1828,6 +1976,8 @@ const titleFor = (f: Finding) =>
       've-editor--glow': glow,
       've-editor--review': !!review,
       've-editor--sheet-open': sheetOpen,
+      've-editor--veil': veilActive,
+      've-editor--proximity': proximityStyled,
       've-editor--loading': loadingEditor,
     }"
   >
@@ -1877,8 +2027,18 @@ const titleFor = (f: Finding) =>
               v-for="(b, i) in allReviewedId === f.id ? [] : boxes.get(f.id) ?? []"
               :key="i"
               class="ve-hl"
-              :class="[`ve-hl--${highlightState(f)}`, `ve-hl--${f.mode}`]"
-              :style="{ top: `${b.top}px`, left: `${b.left}px`, width: `${b.width}px`, height: `${b.height}px` }"
+              :class="[
+                `ve-hl--${highlightState(f)}`,
+                `ve-hl--${f.mode}`,
+                { 've-hl--wipe-pending': wipe?.id === f.id && wipe.phase === 'pending', 've-hl--wipe': wipe?.id === f.id && wipe.phase === 'run' },
+              ]"
+              :style="{
+                top: `${b.top}px`,
+                left: `${b.left}px`,
+                width: `${b.width}px`,
+                height: `${b.height}px`,
+                '--ve-wipe-delay': wipe?.id === f.id ? `${wipeDelays[i] ?? 0}ms` : undefined,
+              }"
             />
             <div
               v-if="!isMobile && allReviewedId !== f.id && blockBars.get(f.id)"
@@ -1910,19 +2070,22 @@ const titleFor = (f: Finding) =>
 
         <!-- Mobile gutter -->
         <div v-if="isMobile && ((suggestionsOn && (detecting || badgeCount > 0 || finishingLast)) || pendingChecks.length)" class="ve-gutter" aria-hidden="false">
-          <button
+          <component
+            :is="proximityStyled ? CdxButton : 'button'"
             v-for="mark in gutterMarks"
             :key="mark.ids.join()"
             type="button"
+            v-bind="proximityStyled ? { weight: 'quiet', size: 'small' } : {}"
             class="ve-gutter__mark"
             :class="[
               `ve-gutter__mark--${mark.state}`,
               {
+                've-gutter__mark--selected': sheetOpen && !!focusedId && mark.ids.includes(focusedId),
                 've-gutter__mark--pulse': !!pulseMarkId && mark.ids.includes(pulseMarkId),
                 've-gutter__mark--bounce': !!bounceMarkId && mark.ids.includes(bounceMarkId),
               },
             ]"
-            :style="{ top: `${mark.top}px` }"
+            :style="{ top: `${mark.top}px`, '--ve-rail-height': `${Math.max(20, mark.bottom - mark.top)}px` }"
             :aria-label="mark.state === 'check' ? 'Show check' : 'Show suggestion'"
             @mousedown.prevent
             @click.stop="openMark(mark.ids)"
@@ -1934,10 +2097,33 @@ const titleFor = (f: Finding) =>
             <CdxIcon
               v-else
               :icon="mark.state === 'check' ? cdxIconAlert : suggestionIcon(mark.type, mark.experimental)"
+              :size="proximityStyled ? 'small' : 'medium'"
             />
             <span v-if="mark.ids.length > 1" class="ve-gutter__count">{{ mark.ids.length }}</span>
-          </button>
+          </component>
         </div>
+
+        <!-- Minerva overlay: covers all but the open suggestion's block; a tap closes the sheet. -->
+        <Transition name="ve-veil">
+          <div
+            v-if="veilActive && veilBand"
+            class="ve-veil ve-veil--above"
+            :style="{ height: `calc(100vh + ${Math.max(0, veilBand.top)}px)` }"
+            aria-hidden="true"
+            @mousedown.prevent
+            @click="closeSheet"
+          />
+        </Transition>
+        <Transition name="ve-veil">
+          <div
+            v-if="veilActive && veilBand"
+            class="ve-veil ve-veil--below"
+            :style="{ top: `${veilBand.bottom}px` }"
+            aria-hidden="true"
+            @mousedown.prevent
+            @click="closeSheet"
+          />
+        </Transition>
       </div>
 
       <div v-if="sectionOnly && !loadingEditor && !sectionEdges.last" class="ve-full-page ve-full-page--bottom">
@@ -2122,7 +2308,7 @@ const titleFor = (f: Finding) =>
       v-if="isMobile && sheetOpen && (sheetFinding || review || sheetMode === 'allReviewed')"
       ref="sheetRef"
       class="ve-sheet"
-      :class="{ 've-sheet--check': (review ? currentReview : sheetFinding)?.mode === 'check', 've-sheet--entering': sheetEntering }"
+      :class="{ 've-sheet--check': (review ? currentReview : sheetFinding)?.mode === 'check', 've-sheet--entering': sheetEntering, 've-sheet--proximity': proximityStyled && !review }"
       role="dialog"
       :aria-label="review ? STR.reviewChanges : 'Suggestion'"
     >
@@ -2701,6 +2887,81 @@ const titleFor = (f: Finding) =>
   background-color: var(--background-color-success-subtle, #dff2eb);
 }
 
+/* Minerva overlay (Mock settings → "Overlay when opening a suggestion"). */
+.ve-veil {
+  position: absolute;
+  left: -16px;
+  right: -16px;
+  z-index: 4;
+  background-color: var(--background-color-backdrop-light, rgba(255, 255, 255, 0.65));
+}
+.ve-veil--above {
+  bottom: auto;
+  top: -100vh;
+}
+.ve-veil--below {
+  bottom: 0;
+}
+.ve-veil-enter-active,
+.ve-veil-leave-active {
+  transition: opacity var(--transition-duration-medium, 250ms) var(--transition-timing-function-system, ease);
+}
+.ve-veil-enter-from,
+.ve-veil-leave-to {
+  opacity: 0;
+}
+
+/* …and the selected highlight wipes in from left to right. */
+.ve-editor--veil .ve-hl--selected {
+  animation: ve-hl-wipe var(--transition-duration-medium, 250ms) var(--transition-timing-function-user, ease-out) both;
+}
+@keyframes ve-hl-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ve-editor--veil .ve-hl--selected {
+    animation: none;
+  }
+}
+
+/*
+ * Minerva "Proximity": the selected highlight wipes in left to right after the scroll ends.
+ * A one-colour gradient grows from 0% to 100% wide, one line after another from the top down.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .ve-hl.ve-hl--selected.ve-hl--wipe-pending,
+  .ve-hl.ve-hl--selected.ve-hl--wipe {
+    --ve-wipe-color: var(--background-color-progressive-subtle, #e8eeff);
+    background-color: transparent;
+    background-image: linear-gradient(var(--ve-wipe-color), var(--ve-wipe-color));
+    background-repeat: no-repeat;
+    background-size: 0% 100%;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    transition: none;
+  }
+  .ve-hl.ve-hl--check.ve-hl--wipe-pending,
+  .ve-hl.ve-hl--check.ve-hl--wipe {
+    --ve-wipe-color: var(--background-color-warning-subtle, #fdf2d5);
+  }
+  .ve-hl.ve-hl--selected.ve-hl--wipe {
+    animation: ve-hl-grow 400ms cubic-bezier(0.23, 1, 0.32, 1) var(--ve-wipe-delay, 0ms) both;
+  }
+}
+@keyframes ve-hl-grow {
+  from {
+    background-size: 0% 100%;
+  }
+  to {
+    background-size: 100% 100%;
+  }
+}
+
 /* Mock settings → "Just rail": unselected highlights have no background, only the rail. */
 .ve-editor--hl-rail .ve-hl--default {
   background-color: var(--background-color-transparent, transparent);
@@ -3147,10 +3408,16 @@ const titleFor = (f: Finding) =>
   position: absolute;
   left: -13px;
   top: 0;
-  width: 2px;
-  height: 100%;
+  /* 1.5px; 2px only for the selected suggestion/check. */
+  width: 1.5px;
+  /* The rail covers the highlighted lines (or the whole paragraph for stacked suggestions). */
+  height: var(--ve-rail-height, 100%);
   border-radius: 2px;
   background-color: var(--color-progressive, #36c);
+}
+
+.ve-gutter__mark--selected::before {
+  width: 2px;
 }
 
 .ve-gutter__mark .cdx-icon {
@@ -3167,6 +3434,31 @@ const titleFor = (f: Finding) =>
 
 .ve-gutter__mark--success::before {
   display: none;
+}
+
+/* Proximity: the rail triggers are Codex small quiet buttons (24px), tinted when selected. */
+.ve-editor--proximity .ve-gutter__mark.cdx-button {
+  left: 10px;
+  margin-top: -2px;
+  /* Codex buttons clip overflow; the rail line and count sit outside the button. */
+  overflow: visible;
+}
+
+.ve-editor--proximity .ve-gutter__mark.cdx-button::before {
+  left: -11px;
+  top: 2px;
+}
+
+.ve-editor--proximity .ve-gutter__mark--selected.cdx-button {
+  background-color: var(--background-color-progressive-subtle, #f1f4fd);
+}
+
+.ve-editor--proximity .ve-gutter__mark--check.cdx-button .cdx-icon {
+  color: var(--color-warning, #886425);
+}
+
+.ve-editor--proximity .ve-gutter__mark--check.ve-gutter__mark--selected.cdx-button {
+  background-color: var(--background-color-warning-subtle, #fdf2d5);
 }
 
 .ve-gutter__count {
@@ -3237,6 +3529,17 @@ const titleFor = (f: Finding) =>
   margin: 0 -16px;
   padding: 0 16px;
   border-bottom: 1px solid var(--border-color-muted, #eaecf0);
+}
+
+/* Proximity: the suggestion/check part of the sheet is tinted; the pager stays white. */
+.ve-sheet--proximity .ve-sheet__body {
+  margin: 0 -16px;
+  padding: 0 16px;
+  background-color: var(--background-color-progressive-subtle, #f1f4fd);
+}
+
+.ve-sheet--proximity.ve-sheet--check .ve-sheet__body {
+  background-color: var(--background-color-warning-subtle, #fdf2d5);
 }
 
 .ve-sheet__header .cdx-icon {
