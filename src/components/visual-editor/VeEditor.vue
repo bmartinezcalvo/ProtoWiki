@@ -1978,6 +1978,7 @@ const titleFor = (f: Finding) =>
       've-editor--sheet-open': sheetOpen,
       've-editor--veil': veilActive,
       've-editor--proximity': proximityStyled,
+      've-editor--near': proximityMode,
       've-editor--loading': loadingEditor,
     }"
   >
@@ -2962,8 +2963,10 @@ const titleFor = (f: Finding) =>
   }
 }
 
-/* Mock settings → "Just rail": unselected highlights have no background, only the rail. */
-.ve-editor--hl-rail .ve-hl--default {
+/* Mock settings → "Just rail", and Minerva "Proximity": unselected highlights have no
+   background, only the rail. */
+.ve-editor--hl-rail .ve-hl--default,
+.ve-editor--near .ve-hl--default {
   background-color: var(--background-color-transparent, transparent);
 }
 
