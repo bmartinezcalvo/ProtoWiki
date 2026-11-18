@@ -35,8 +35,11 @@ export interface SuggestionSettings {
    * (the blue / yellow line beside it). `rail`: transparent background, rail only.
    */
   highlightStyle: 'railHighlight' | 'rail'
-  /** Suggestion icons: `lightbulb` for every suggestion, or `contextual` icons per category. */
-  suggestionIcons: 'lightbulb' | 'contextual'
+  /**
+   * Suggestion icons: `lightbulb` for every suggestion, `contextual` icons per category (V1), or
+   * `contextualBadge` (V2): the lightbulb with the contextual icon as an x-small badge bottom right.
+   */
+  suggestionIcons: 'lightbulb' | 'contextual' | 'contextualBadge'
   /** "Show stacked suggestions": at least one paragraph has more than one suggestion. */
   showStacked: boolean
   /**

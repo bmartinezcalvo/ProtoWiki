@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import {
   CdxButton,
@@ -35,7 +35,26 @@ const {
   mockEditorEditCount,
 } = useConfig()
 
-const activeTab = ref('suggestions')
+/** Mock settings opens on Suggestions by default, then on whichever tab was last selected. */
+const TAB_KEY = 'protowiki:mock-settings:tab'
+const TABS = ['user-type', 'suggestions', 'other']
+function savedTab(): string {
+  try {
+    const t = localStorage.getItem(TAB_KEY)
+    if (t && TABS.includes(t)) return t
+  } catch {
+    /* storage unavailable */
+  }
+  return 'suggestions'
+}
+const activeTab = ref(savedTab())
+watch(activeTab, (t) => {
+  try {
+    localStorage.setItem(TAB_KEY, t)
+  } catch {
+    /* storage unavailable */
+  }
+})
 
 const userMenuItems = computed(() =>
   CONFIG_USER_MENU_ITEMS.map((item) =>
@@ -143,7 +162,10 @@ const editedPagesText = computed({
               Lightbulb icon
             </CdxRadio>
             <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="contextual">
-              Contextual icons
+              Contextual icons V1
+            </CdxRadio>
+            <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="contextualBadge">
+              Contextual icons V2
             </CdxRadio>
           </CdxField>
           <CdxField is-fieldset>

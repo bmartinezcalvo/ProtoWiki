@@ -467,16 +467,9 @@ watch(suggestionsOn, (on) => {
     sheetOpen.value = false
     focusedId.value = null
   }
-  // No "Suggestions turned on / off" toasts (removed from the prototypes).
-  flashGlow()
+  // No "Suggestions turned on / off" toasts or card glow (removed from the prototypes).
   scheduleLayout()
 })
-
-const glow = ref(false)
-function flashGlow() {
-  glow.value = true
-  setTimeout(() => (glow.value = false), 200)
-}
 
 // ── Highlight overlay ────────────────────────────────────────────────────────
 
@@ -598,6 +591,9 @@ function desiredTop(f: Finding): number {
   return list?.length ? Math.min(...list.map((b) => b.top)) : 0
 }
 
+/** Desktop cards that already have a position (others are hidden until laid out). */
+const placedCardIds = reactive(new Set<string>())
+
 function layoutCards() {
   if (isMobile.value) return
   const items = review.value ? displayed.value.filter((f) => f.id === currentReview.value?.id) : displayed.value
@@ -633,6 +629,16 @@ function layoutCards() {
   }
   cardTops.clear()
   for (const [id, t] of tops) cardTops.set(id, t)
+  // Cards that just appeared (suggestions toggled on, a new finding…) take their place without
+  // sliding down from the top; the slide transition comes back on the next frame.
+  for (const id of [...placedCardIds]) if (!tops.has(id)) placedCardIds.delete(id)
+  const fresh = [...tops.keys()].filter((id) => !placedCardIds.has(id))
+  if (fresh.length)
+    nextTick(() => {
+      // The new tops are in the DOM: commit them (reflow) before turning the transition back on.
+      for (const id of fresh) void cardEls.get(id)?.offsetHeight
+      for (const id of fresh) if (cardTops.has(id)) placedCardIds.add(id)
+    })
   const reviewed = review.value ? items[0] : null
   if (reviewed) {
     // Card next to its highlight, with room for the heading above it.
@@ -1958,6 +1964,11 @@ function suggestionIcon(type: string, experimental: boolean) {
   return experimental ? cdxIconLightbulbDashed : cdxIconLightbulb
 }
 const iconFor = (f: Finding) => (f.mode === 'check' ? cdxIconAlert : suggestionIcon(f.type, !!f.experimental))
+/** "Contextual icons V2": the contextual icon as a badge on the lightbulb (suggestions only). */
+function badgeIcon(type: string, mode: string) {
+  if (mode === 'check' || suggestionSettings.suggestionIcons !== 'contextualBadge') return null
+  return contextualIcon(type) ?? null
+}
 
 const subheadingFor = (f: Finding) =>
   f.experimental ? (f.mode === 'check' ? 'Experimental edit check for testing' : 'Experimental suggestion for testing') : null
@@ -1973,7 +1984,6 @@ const titleFor = (f: Finding) =>
     :class="{
       've-editor--suggestions': suggestionsOn,
       've-editor--hl-rail': suggestionSettings.highlightStyle === 'rail',
-      've-editor--glow': glow,
       've-editor--review': !!review,
       've-editor--sheet-open': sheetOpen,
       've-editor--veil': veilActive,
@@ -2100,6 +2110,12 @@ const titleFor = (f: Finding) =>
               :icon="mark.state === 'check' ? cdxIconAlert : suggestionIcon(mark.type, mark.experimental)"
               :size="proximityStyled ? 'small' : 'medium'"
             />
+            <CdxIcon
+              v-if="mark.state !== 'success' && mark.ids.length === 1 && badgeIcon(mark.type, mark.state)"
+              class="ve-icon-badge"
+              size="x-small"
+              :icon="badgeIcon(mark.type, mark.state)!"
+            />
             <span v-if="mark.ids.length > 1" class="ve-gutter__count">{{ mark.ids.length }}</span>
           </component>
         </div>
@@ -2176,6 +2192,7 @@ const titleFor = (f: Finding) =>
               've-card--success': successIds.has(f.id) || publishPathId === f.id || allReviewedId === f.id,
               've-card--bounce': bounceCardId === f.id,
               've-card--dismiss': dismissingId === f.id,
+              've-card--unplaced': !placedCardIds.has(f.id),
             }"
             :style="{ top: `${cardTops.get(f.id) ?? 0}px` }"
             @mouseenter="hoverId = f.id"
@@ -2236,7 +2253,10 @@ const titleFor = (f: Finding) =>
                 :aria-expanded="focusedId === f.id || !!review"
                 @click="review ? null : focusedId === f.id ? focus(null) : focus(f)"
               >
-                <span class="ve-card__icon"><CdxIcon :icon="iconFor(f)" /></span>
+                <span class="ve-card__icon">
+                  <CdxIcon :icon="iconFor(f)" />
+                  <CdxIcon v-if="badgeIcon(f.type, f.mode)" class="ve-icon-badge" size="x-small" :icon="badgeIcon(f.type, f.mode)!" />
+                </span>
                 <span class="ve-card__heading">
                   <span class="ve-card__title">{{ f.title }}</span>
                   <span v-if="subheadingFor(f) && (focusedId === f.id || review)" class="ve-card__subheading">
@@ -2346,7 +2366,15 @@ const titleFor = (f: Finding) =>
           }"
         >
           <div class="ve-sheet__header">
-            <CdxIcon :icon="iconFor((review ? currentReview : sheetFinding)!)" />
+            <span class="ve-sheet__icon">
+              <CdxIcon :icon="iconFor((review ? currentReview : sheetFinding)!)" />
+              <CdxIcon
+                v-if="badgeIcon((review ? currentReview : sheetFinding)!.type, (review ? currentReview : sheetFinding)!.mode)"
+                class="ve-icon-badge"
+                size="x-small"
+                :icon="badgeIcon((review ? currentReview : sheetFinding)!.type, (review ? currentReview : sheetFinding)!.mode)!"
+              />
+            </span>
             <div class="ve-sheet__heading">
               <div class="ve-sheet__title">{{ (review ? currentReview : sheetFinding)!.title }}</div>
               <div v-if="subheadingFor((review ? currentReview : sheetFinding)!)" class="ve-sheet__subheading">
@@ -2986,10 +3014,6 @@ const titleFor = (f: Finding) =>
   background-color: var(--color-success, #14866d);
 }
 
-.ve-editor--glow .ve-card {
-  filter: drop-shadow(0 0 10px rgba(51, 102, 204, 0.25));
-}
-
 /* Review: dim everything except the checked blocks */
 .ve-editor__surface--review > :deep(*) {
   opacity: 0.4;
@@ -3039,6 +3063,12 @@ const titleFor = (f: Finding) =>
     box-shadow 0.2s ease;
   user-select: none;
   z-index: 1;
+}
+
+/* Not laid out yet: no slide from top: 0 into place. */
+.ve-card--unplaced {
+  visibility: hidden;
+  transition: none;
 }
 
 .ve-card--hover {
@@ -3119,7 +3149,29 @@ const titleFor = (f: Finding) =>
   border-top: 1px solid var(--border-color-muted, #dadde3);
 }
 
+/* "Contextual icons V2": x-small contextual badge at the lightbulb's bottom-right. */
+.ve-icon-badge.cdx-icon {
+  position: absolute;
+  right: -7px;
+  bottom: -3px;
+  pointer-events: none;
+}
+
+.ve-gutter__mark .ve-icon-badge.cdx-icon {
+  right: -6px;
+  bottom: -4px;
+}
+
+.ve-sheet__icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  flex-shrink: 0;
+}
+
 .ve-card__icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3179,7 +3231,12 @@ const titleFor = (f: Finding) =>
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-block: 8px;
+}
+
+/* Start icon: centred on the title's first line (26px line height). */
+.ve-sheet__header > .cdx-icon {
+  margin-block: 3px;
+  flex-shrink: 0;
 }
 
 .ve-card__title {
@@ -3526,11 +3583,14 @@ const titleFor = (f: Finding) =>
 
 .ve-sheet__header {
   display: flex;
-  align-items: center;
+  /* Icon and close button line up with the title's first line (26px), not the block's middle. */
+  align-items: flex-start;
   gap: 8px;
   min-height: 44px;
   margin: 0 -16px;
-  padding: 0 16px;
+  /* 9 + 26 + 8 + 1px border = 44px, the height of a one-line header. */
+  padding: 9px 16px 8px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border-color-muted, #eaecf0);
 }
 
@@ -3573,7 +3633,9 @@ const titleFor = (f: Finding) =>
 }
 
 .ve-sheet__icon-btn {
+  display: inline-flex;
   margin-left: auto;
+  margin-block: -1px;
   border: none;
   background: transparent;
   padding: 4px;
