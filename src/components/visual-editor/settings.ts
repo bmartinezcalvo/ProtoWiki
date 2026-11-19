@@ -52,11 +52,18 @@ export interface SuggestionSettings {
   /**
    * Minerva — "Prominence between highlighted text and bottom sheet": `nothing` (as is) or
    * `overlay` (a light backdrop covers everything but the selected block, the highlight wipes in),
-   * `proximityOnly` ("Proximity": the selected text scrolls to sit 40px above the sheet), or
-   * `proximity` ("Proximity + other changes": same, plus a sheet tinted by suggestion/check, small
-   * quiet rail buttons and a thinner rail line when unselected).
+   * `proximityOnly` ("No highlighted text when unselected": the selected text sits 32px above the
+   * sheet, unselected suggestions have no highlight, unselected checks a faint one, one-line
+   * highlights wipe in), or `proximity` ("Colored bottom sheet": selected text 40px above a sheet
+   * tinted by suggestion/check, small quiet rail buttons, line-by-line wipe).
    */
   sheetProminence: 'nothing' | 'overlay' | 'proximity' | 'proximityOnly'
+  /**
+   * Desktop — "No highlighted text when unselected" (Improve distinction between states):
+   * unselected suggestions have no highlight, unselected checks a faint warning one, and
+   * one-line highlights wipe in when selected.
+   */
+  desktopNoHighlight: boolean
 }
 
 const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
@@ -79,6 +86,7 @@ function defaults(): SuggestionSettings {
     emptyState: 'selectable',
     allReviewedState: 'nothing',
     sheetProminence: 'proximityOnly',
+    desktopNoHighlight: true,
   }
 }
 

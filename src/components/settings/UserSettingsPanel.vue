@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 
 import {
   CdxButton,
+  CdxCheckbox,
   CdxField,
   CdxRadio,
   CdxSelect,
@@ -15,6 +16,7 @@ import {
 import SuggestionSettingsPanel from '@/components/settings/SuggestionSettingsPanel.vue'
 import { suggestionSettings } from '@/components/visual-editor/settings'
 import { useConfig } from '@/composables/useConfig'
+import { useSkin } from '@/composables/useSkin'
 import {
   CONFIG_MOCK_EDITOR_EDIT_COUNT_SELECT_ITEMS,
   CONFIG_USER_MENU_ITEMS,
@@ -48,6 +50,7 @@ function savedTab(): string {
   return 'suggestions'
 }
 const activeTab = ref(savedTab())
+const skin = useSkin()
 watch(activeTab, (t) => {
   try {
     localStorage.setItem(TAB_KEY, t)
@@ -195,9 +198,9 @@ const editedPagesText = computed({
               Toast
             </CdxRadio>
           </CdxField>
-          <CdxField is-fieldset>
-            <template #label>Prominence between highlighted text and bottom sheet</template>
-            <template #description>Minerva only</template>
+          <!-- Minerva: several options (radios). Desktop: a single option (checkbox). -->
+          <CdxField v-if="skin === 'mobile'" is-fieldset>
+            <template #label>Improve distinction between states</template>
             <CdxRadio v-model="suggestionSettings.sheetProminence" name="sheet-prominence" input-value="nothing">
               Nothing
             </CdxRadio>
@@ -205,11 +208,15 @@ const editedPagesText = computed({
               Overlay when opening a suggestion
             </CdxRadio>
             <CdxRadio v-model="suggestionSettings.sheetProminence" name="sheet-prominence" input-value="proximity">
-              Proximity + other changes
+              Colored bottom sheet
             </CdxRadio>
             <CdxRadio v-model="suggestionSettings.sheetProminence" name="sheet-prominence" input-value="proximityOnly">
-              Proximity
+              No highlighted text when unselected
             </CdxRadio>
+          </CdxField>
+          <CdxField v-else is-fieldset>
+            <template #label>Improve distinction between states</template>
+            <CdxCheckbox v-model="suggestionSettings.desktopNoHighlight">No highlighted text when unselected</CdxCheckbox>
           </CdxField>
         </div>
       </CdxTab>
