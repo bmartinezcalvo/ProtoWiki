@@ -10,8 +10,8 @@
  *   lightbulbs + a bottom sheet with "N of M" pagination.
  * - Publish runs the pre-save "Before publishing" step with checks only.
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
-import { CdxButton, CdxDialog, CdxIcon, CdxToast } from '@wikimedia/codex'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { CdxButton, CdxCheckbox, CdxDialog, CdxIcon, CdxToast } from '@wikimedia/codex'
 import {
   cdxIconAlert,
   cdxIconArrowDown,
@@ -21,6 +21,7 @@ import {
   cdxIconLightbulb,
   cdxIconLightbulbDashed,
   cdxIconSuccess,
+  cdxIconLightbulbOutline,
 } from '@wikimedia/codex-icons'
 
 import FindingBody from './FindingBody.vue'
@@ -33,10 +34,12 @@ import { useEffectiveEditorEditCount } from '@/composables/useEffectiveEditorEdi
 import VeToolbar from './VeToolbar.vue'
 import * as fix from './engine/actions'
 import {
+  createAddReferenceFinding,
   detectSuggestions,
   leadParagraphs,
   leadWordCount,
   prepare,
+  sortFindings,
   type ChoiceAction,
   type Finding,
 } from './engine/checks'
@@ -51,6 +54,13 @@ import {
 } from './engine/editChecks'
 import { STR } from './engine/strings'
 import { applySuggestionSettings, suggestionSettings } from './settings'
+import welcomeGlobe from './assets/neutral-baby-globe.gif'
+import {
+  PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR,
+  editorCountKey,
+  editorSuggestionCounts,
+} from '@/components/article/shared/editSuggestionsIndicator'
+import { contextualIcon } from './engine/suggestionIcons'
 
 const props = defineProps<{
   html: string
@@ -122,6 +132,17 @@ const successTitles = reactive(new Map<string, string>())
 /** The publish-path card (first completed suggestion, editors with ≤10 edits). */
 const publishPathId = ref<string | null>(null)
 let publishPathShown = false
+/**
+ * "No more suggestions": the article had suggestions and all of them were
+ * completed or dismissed. Holds the last reviewed suggestion (Vector: the card
+ * takes its place; Minerva: shown in the bottom sheet).
+ */
+const allReviewedId = ref<string | null>(null)
+/**
+ * Last suggestion completed: its success state shows with the panel still open
+ * while the toolbar bulb turns empty; once the success state is gone, the panel closes.
+ */
+const finishingLast = ref(false)
 const dismissingId = ref<string | null>(null)
 /** Blocks whose tone check was declined — not re-flagged this session. */
 const dismissedToneBlocks = new WeakSet<Element>()
@@ -129,12 +150,10 @@ const dismissedToneBlocks = new WeakSet<Element>()
 const modeEnabled = computed(() => suggestionSettings.enabled)
 
 function initialSuggestionsOn(): boolean {
-  if (!suggestionSettings.enabled) return false
-  if (isMobile.value) return true
-  return suggestionSettings.firstTime ? false : suggestionSettings.rememberedToggle
+  return suggestionSettings.enabled
 }
 
-/** Desktop: production remembers the toggle; first-timers start with it off. Mobile: always on. */
+/** Suggestions start on, on desktop and mobile, for every editor. */
 const suggestionsOn = ref(initialSuggestionsOn())
 
 function isLive(f: Finding): boolean {
@@ -256,7 +275,39 @@ function scrollToSection(id: string) {
 }
 
 /** Suggestions after the settings filter (type + custom count). */
-const filteredSuggestions = computed(() => applySuggestionSettings(suggestions.value))
+/** "Show stacked suggestions" (Mock settings): extra suggestion that stacks on an existing paragraph. */
+const stackExtra = shallowRef<Finding | null>(null)
+const filteredSuggestions = computed(() => {
+  const list = applySuggestionSettings(suggestions.value)
+  return stackExtra.value && suggestionSettings.showStacked ? sortFindings([...list, stackExtra.value]) : list
+})
+
+/**
+ * With "Show stacked suggestions" on, make sure at least one paragraph has more
+ * than one suggestion: if none does, add "Add a citation" to a paragraph that
+ * already has another suggestion near its top (so the Minerva rail stacks them).
+ */
+function computeStackExtra() {
+  stackExtra.value = null
+  if (!suggestionSettings.showStacked) return
+  const byBlock = new Map<Element, Finding[]>()
+  for (const f of applySuggestionSettings(suggestions.value)) {
+    const block = blockOf(f.element ?? f.ranges[0]?.startContainer ?? null)
+    if (block) byBlock.set(block, [...(byBlock.get(block) ?? []), f])
+  }
+  if ([...byBlock.values()].some((list) => list.length > 1)) return
+  const candidates = [...byBlock].filter(
+    ([block, list]) =>
+      block.tagName === 'P' && (block.textContent ?? '').trim().length >= 50 && !list.some((f) => f.type === 'addReference'),
+  )
+  const nearTop = ([block, list]: [Element, Finding[]]) =>
+    Math.abs(list[0].ranges[0].getBoundingClientRect().top - block.getBoundingClientRect().top) < 16
+  const pick = candidates.find(nearTop) ?? candidates[0]
+  if (!pick) return
+  const extra = createAddReferenceFinding(pick[0])
+  status.set(extra.id, 'pending')
+  stackExtra.value = extra
+}
 
 const pendingSuggestions = computed(() =>
   filteredSuggestions.value.filter((f) => status.get(f.id) === 'pending' && isLive(f) && inScope(f)),
@@ -286,7 +337,9 @@ function byPosition(a: Finding, b: Finding): number {
 const displayed = computed<Finding[]>(() => {
   if (review.value) return review.value.items.filter((f) => status.get(f.id) !== 'done' || successIds.has(f.id))
   const transient = [...suggestions.value, ...checks.value].filter(
-    (f) => (successIds.has(f.id) || publishPathId.value === f.id) && status.get(f.id) === 'done',
+    (f) =>
+      ((successIds.has(f.id) || publishPathId.value === f.id) && status.get(f.id) === 'done') ||
+      (!isMobile.value && allReviewedId.value === f.id),
   )
   if (loadingEditor.value) return []
   const visibleSuggestions = suggestionsOn.value
@@ -317,6 +370,7 @@ async function runDetection() {
   })
   for (const f of findings) status.set(f.id, 'pending')
   suggestions.value = findings
+  computeStackExtra()
   detecting.value = false
   emit('detected', findings.length)
   scheduleLayout()
@@ -332,15 +386,20 @@ watch([editCount, editCountReady], () => {
 const toast = ref<{ id: number; text: string } | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 let toastCounter = 0
-function showToast(text: string) {
+function showToast(text: string, options: { duration?: number; immediate?: boolean } = {}) {
   if (toastTimer) clearTimeout(toastTimer)
   const show = () => {
     toast.value = { id: ++toastCounter, text }
-    toastTimer = setTimeout(() => (toast.value = null), 2000)
+    toastTimer = setTimeout(() => (toast.value = null), options.duration ?? 2000)
   }
   // Minerva shows the toggle toast 500 ms after the change.
-  if (isMobile.value) toastTimer = setTimeout(show, 500)
+  if (isMobile.value && !options.immediate) toastTimer = setTimeout(show, 500)
   else show()
+}
+
+/** Minerva "0 suggestions" empty state as a toast: gone after 4 seconds. */
+function showEmptyToast() {
+  showToast('There are no suggestions to improve this article for now.', { duration: 4000, immediate: true })
 }
 
 watch(
@@ -364,27 +423,53 @@ watch(
   },
 )
 
+/**
+ * Desktop suggestions side panel: only while there are suggestions to show,
+ * so with 0 suggestions the article stays centred whether the toggle is on or off.
+ */
+const sidebarWanted = computed(
+  () =>
+    modeEnabled.value &&
+    !loadingEditor.value &&
+    !isMobile.value &&
+    suggestionsOn.value &&
+    // "No more suggestions" card keeps the panel open until it is closed.
+    (detecting.value || badgeCount.value > 0 || !!allReviewedId.value || finishingLast.value),
+)
+watch(sidebarWanted, (open) => emit('sidebar', open))
+// Read mode uses the editor's real count once known: the indicator shows with at
+// least 1 suggestion and hides only at 0. Whole article, not just the section being edited.
+const articleSuggestionCount = computed(
+  () => filteredSuggestions.value.filter((f) => status.get(f.id) === 'pending').length,
+)
+let leavingEditor = false
+watch([articleSuggestionCount, detecting, loadingEditor], () => {
+  // Never record while loading, detecting or closing (the surface is torn down then).
+  if (leavingEditor || detecting.value || loadingEditor.value) return
+  editorSuggestionCounts.set(editorCountKey(props.page.host, props.page.title), articleSuggestionCount.value)
+})
+onBeforeUnmount(() => {
+  leavingEditor = true
+})
+watch(() => suggestionSettings.highlightStyle, () => scheduleLayout())
+watch(
+  () => [suggestionSettings.showStacked, suggestionSettings.limit, JSON.stringify(suggestionSettings.types)],
+  () => {
+    computeStackExtra()
+    scheduleLayout()
+  },
+)
+
 watch(suggestionsOn, (on) => {
   if (!modeEnabled.value) return
-  if (!isMobile.value) {
-    suggestionSettings.rememberedToggle = on
-    suggestionSettings.firstTime = false
-  }
-  emit('sidebar', on && !isMobile.value)
+  if (!isMobile.value) suggestionSettings.rememberedToggle = on
   if (!on) {
     sheetOpen.value = false
     focusedId.value = null
   }
-  showToast(on ? (badgeCount.value > 0 ? STR.suggestionsTurnedOn : STR.suggestionsNone) : STR.suggestionsTurnedOff)
-  flashGlow()
+  // No "Suggestions turned on / off" toasts or card glow (removed from the prototypes).
   scheduleLayout()
 })
-
-const glow = ref(false)
-function flashGlow() {
-  glow.value = true
-  setTimeout(() => (glow.value = false), 200)
-}
 
 // ── Highlight overlay ────────────────────────────────────────────────────────
 
@@ -428,10 +513,14 @@ function measure() {
   const next = new Map<string, Box[]>()
   const bars = new Map<string, Box>()
   for (const f of displayed.value) {
-    const list = rectsFor(f, origin)
+    let list = rectsFor(f, origin)
+    // A completed suggestion whose text was removed or replaced (unlink, remove link…) has nothing
+    // left to measure: keep its last boxes so the success highlight and rail check still show.
+    if (!list.length && (successIds.has(f.id) || publishPathId.value === f.id)) list = boxes.value.get(f.id) ?? []
     next.set(f.id, list)
-    // Rail on the left: block-level suggestions, and every edit check.
-    if (list.length && (isBlockFinding(f) || f.mode === 'check')) {
+    // Rail on the left: block-level suggestions, and every edit check
+    // ("Just rail" in Mock settings: every suggestion, as it is their only marker).
+    if (list.length && (isBlockFinding(f) || f.mode === 'check' || suggestionSettings.highlightStyle === 'rail')) {
       const top = Math.min(...list.map((b) => b.top))
       const bottom = Math.max(...list.map((b) => b.top + b.height))
       bars.set(f.id, { top, left: 0, width: 2, height: bottom - top })
@@ -439,7 +528,38 @@ function measure() {
   }
   boxes.value = next
   blockBars.value = bars
+  measureVeil()
   nextTick(layoutCards)
+}
+
+// ── Minerva "Overlay when opening a suggestion" (Mock settings → Prominence…) ──
+// A light backdrop covers everything except the block of the open suggestion / check,
+// so that block is the only part left to edit. Tapping the backdrop closes the sheet.
+
+const veilActive = computed(
+  () =>
+    isMobile.value &&
+    !review.value &&
+    suggestionSettings.sheetProminence === 'overlay' &&
+    sheetOpen.value &&
+    sheetMode.value === 'finding' &&
+    !!sheetFinding.value,
+)
+/** The uncovered band (relative to the surface wrap): the selected block plus a little air. */
+const veilBand = ref<{ top: number; bottom: number } | null>(null)
+const VEIL_PADDING = 8
+
+function measureVeil() {
+  const f = veilActive.value ? sheetFinding.value : null
+  const wrap = wrapRef.value
+  const block = f ? blockOf(f.element ?? f.ranges[0]?.startContainer ?? null) : null
+  if (!f || !wrap || !block) {
+    veilBand.value = null
+    return
+  }
+  const origin = wrap.getBoundingClientRect()
+  const r = block.getBoundingClientRect()
+  veilBand.value = { top: r.top - origin.top - VEIL_PADDING, bottom: r.bottom - origin.top + VEIL_PADDING }
 }
 
 let layoutTimer: ReturnType<typeof setTimeout> | undefined
@@ -473,6 +593,9 @@ function desiredTop(f: Finding): number {
   const list = boxes.value.get(f.id)
   return list?.length ? Math.min(...list.map((b) => b.top)) : 0
 }
+
+/** Desktop cards that already have a position (others are hidden until laid out). */
+const placedCardIds = reactive(new Set<string>())
 
 function layoutCards() {
   if (isMobile.value) return
@@ -509,6 +632,16 @@ function layoutCards() {
   }
   cardTops.clear()
   for (const [id, t] of tops) cardTops.set(id, t)
+  // Cards that just appeared (suggestions toggled on, a new finding…) take their place without
+  // sliding down from the top; the slide transition comes back on the next frame.
+  for (const id of [...placedCardIds]) if (!tops.has(id)) placedCardIds.delete(id)
+  const fresh = [...tops.keys()].filter((id) => !placedCardIds.has(id))
+  if (fresh.length)
+    nextTick(() => {
+      // The new tops are in the DOM: commit them (reflow) before turning the transition back on.
+      for (const id of fresh) void cardEls.get(id)?.offsetHeight
+      for (const id of fresh) if (cardTops.has(id)) placedCardIds.add(id)
+    })
   const reviewed = review.value ? items[0] : null
   if (reviewed) {
     // Card next to its highlight, with room for the heading above it.
@@ -527,6 +660,42 @@ const pillColumn = ref<{ left: string; width: string }>({ left: '0px', width: '3
 const anyInView = ref(true)
 const seenOnMobile = ref(false)
 const bannerDismissed = ref(false)
+/**
+ * Discoverability: after Dismiss or Complete, "View suggestions" waits
+ * PILL_DELAY_MS (after the success state, for Complete) instead of popping up.
+ */
+const PILL_DELAY_MS = 1000
+const pillHeld = ref(false)
+/** Welcome "View suggestions" / "Not now": no pill until a suggestion is completed or dismissed. */
+const pillWaitsForAction = ref(false)
+let pillHoldTimer: ReturnType<typeof setTimeout> | undefined
+let pillHeldForPublishPath = false
+
+function holdPill(ms: number) {
+  if (!discoverability) return
+  pillWaitsForAction.value = false
+  clearTimeout(pillHoldTimer)
+  pillHeldForPublishPath = false
+  pillHeld.value = true
+  pillHoldTimer = setTimeout(() => (pillHeld.value = false), ms)
+}
+
+function holdPillUntilPublishPathCloses() {
+  if (!discoverability) return
+  pillWaitsForAction.value = false
+  clearTimeout(pillHoldTimer)
+  pillHeld.value = true
+  pillHeldForPublishPath = true
+}
+
+watch(publishPathId, (id) => {
+  if (!id && pillHeldForPublishPath) holdPill(PILL_DELAY_MS)
+})
+
+/** First pending suggestion whose highlight is in the viewport (discoverability nudges). */
+const firstVisibleId = ref<string | null>(null)
+/** Every pending suggestion in the viewport, in document order. */
+const visibleIds = ref<string[]>([])
 
 function updateViewport() {
   const wrap = wrapRef.value
@@ -539,13 +708,18 @@ function updateViewport() {
   let nearestAbove = -Infinity
   let nearestBelow = Infinity
   let inView = false
+  const visible: string[] = []
   for (const f of pendingDisplayed.value) {
     if (!boxes.value.get(f.id)?.length) continue
     const top = desiredTop(f) + origin.top
-    if (top >= viewTop && top <= viewBottom) inView = true
-    else if (top < viewTop) nearestAbove = Math.max(nearestAbove, top)
+    if (top >= viewTop && top <= viewBottom) {
+      inView = true
+      visible.push(f.id)
+    } else if (top < viewTop) nearestAbove = Math.max(nearestAbove, top)
     else nearestBelow = Math.min(nearestBelow, top)
   }
+  firstVisibleId.value = visible[0] ?? null
+  if (visible.join() !== visibleIds.value.join()) visibleIds.value = visible
   anyInView.value = inView
   if (inView && isMobile.value) seenOnMobile.value = true
   if (inView) offscreenDirection.value = null
@@ -554,19 +728,51 @@ function updateViewport() {
   else offscreenDirection.value = nearestAbove !== -Infinity ? 'up' : null
 }
 
+/** Minerva "Proximity" (and "Proximity + other changes"): selected text sits 40px above the sheet. */
+const proximityMode = computed(
+  () => isMobile.value && (suggestionSettings.sheetProminence === 'proximity' || suggestionSettings.sheetProminence === 'proximityOnly'),
+)
+/** "Colored bottom sheet": also tinted sheet, small quiet rail buttons, line-by-line wipe. */
+const proximityStyled = computed(() => isMobile.value && suggestionSettings.sheetProminence === 'proximity')
+/**
+ * "No highlighted text when unselected" (Minerva radio / desktop checkbox): unselected suggestions
+ * have no highlight, unselected checks a faint one, and one-line highlights wipe in when selected.
+ */
+const quietHighlights = computed(() =>
+  isMobile.value ? suggestionSettings.sheetProminence === 'proximityOnly' : suggestionSettings.desktopNoHighlight,
+)
+/** Gap between the selected text and the sheet: 32px, 40px for "Colored bottom sheet". */
+const sheetGap = computed(() => (proximityStyled.value ? 40 : 32))
+
 function scrollToFinding(f: Finding, block: ScrollLogicalPosition = 'center') {
   const el = f.element ?? f.ranges[0].startContainer.parentElement
   if (!el) return
   if (isMobile.value) {
     const rect = (f.element ?? f.ranges[0]).getBoundingClientRect()
     const usable = Math.max(160, window.innerHeight - (sheetHeight.value || 220))
+    if (proximityMode.value) {
+      // Sit the selected text as close to the sheet as possible; a block taller than the space left aligns to the top instead.
+      const fromBottom = usable - sheetGap.value - rect.height
+      const desired = fromBottom >= 72 ? fromBottom : 72
+      smoothScrollTo(f, rect.top + window.scrollY - desired)
+      return
+    }
     const desired = Math.max(72, Math.min(usable * 0.36, usable - 96))
     window.scrollTo({ top: Math.max(0, rect.top + window.scrollY - desired), behavior: 'smooth' })
     return
   }
   const rect = (f.element ?? f.ranges[0]).getBoundingClientRect()
   const offset = block === 'center' ? window.innerHeight / 2 - rect.height / 2 : 80
-  window.scrollTo({ top: Math.max(0, rect.top + window.scrollY - offset), behavior: 'smooth' })
+  smoothScrollTo(f, rect.top + window.scrollY - offset)
+}
+
+/** Smooth-scroll to a finding and note where it lands, so its wipe can wait for the scroll. */
+function smoothScrollTo(f: Finding, top: number) {
+  const maxScroll = document.documentElement.scrollHeight - window.innerHeight
+  const target = Math.round(Math.min(maxScroll, Math.max(0, top)))
+  window.scrollTo({ top: target, behavior: 'smooth' })
+  wipeScroll = { id: f.id, target }
+  setTimeout(checkWipe, 0)
 }
 
 /** Section editing with nothing to suggest here, but suggestions in other sections. */
@@ -656,8 +862,10 @@ function onSurfaceClick(e: MouseEvent) {
   const hit = findingAtPoint(e.clientX, e.clientY, e.target)
   if ((e.target as Element).closest('a')) e.preventDefault()
   if (hit) {
-    if (isMobile.value && sheetOpen.value && focusedId.value === hit.id) closeSheet()
-    else focus(hit)
+    // With the overlay on, the open suggestion's text is where you edit: tapping it keeps the sheet.
+    if (isMobile.value && sheetOpen.value && focusedId.value === hit.id) {
+      if (!veilActive.value) closeSheet()
+    } else focus(hit)
   }
 }
 
@@ -676,6 +884,7 @@ let lastBlock: Element | null = null
 const pageInfo = computed(() => ({ lang: props.page.lang, title: props.page.title }))
 
 function onInput() {
+  restartIdle()
   hasChanges.value = true
   canRedo.value = false
   const block = blockOf(window.getSelection()?.anchorNode ?? null)
@@ -816,6 +1025,69 @@ const dialog = ref<{
   fields?: { key: string; label: string }[]
 } | null>(null)
 
+/** Suggestions completed in this session (for "No more suggestions"). */
+const completedSuggestionCount = computed(
+  () => filteredSuggestions.value.filter((f) => status.get(f.id) === 'done').length,
+)
+const allReviewedText = computed(() => {
+  const n = completedSuggestionCount.value
+  if (n === 0) return 'You’ve reviewed all suggestions in this article. You can continue editing.'
+  return `You’ve reviewed all suggestions in this article. You can now publish your ${n} ${n === 1 ? 'suggestion' : 'suggestions'} completed or continue editing.`
+})
+
+/** After completing / dismissing a suggestion: was it the last one? Then show "No more suggestions". */
+/** Was this the article's last suggestion to review? */
+function isLastReviewed(f: Finding): boolean {
+  if (f.mode !== 'suggestion' || review.value) return false
+  return filteredSuggestions.value.length > 0 && pendingSuggestions.value.length === 0
+}
+
+function showAllReviewedIfDone(f: Finding): boolean {
+  if (!isLastReviewed(f)) return false
+  return showAllReviewed(f)
+}
+
+function showAllReviewed(f: Finding): boolean {
+  // "Empty state when completed/declined all suggestions" (Mock settings): nothing, card or toast.
+  // The toolbar lightbulb animates from filled to empty in every case.
+  if (suggestionSettings.allReviewedState !== 'card') {
+    if (focusedId.value === f.id) focusedId.value = null
+    if (isMobile.value) closeSheet()
+    if (suggestionSettings.allReviewedState === 'toast') showToast('No more suggestions', { duration: 4000, immediate: true })
+    scheduleLayout()
+    return true
+  }
+  allReviewedId.value = f.id
+  if (focusedId.value === f.id) focusedId.value = null
+  if (isMobile.value) {
+    // The last suggestion's sheet closes, then the empty state opens in the sheet.
+    closeSheet()
+    setTimeout(() => {
+      if (allReviewedId.value !== f.id) return
+      sheetMode.value = 'allReviewed'
+      sheetEntering.value = true
+      sheetOpen.value = true
+      nextTick(() => requestAnimationFrame(() => (sheetEntering.value = false)))
+    }, 500)
+  }
+  scheduleLayout()
+  return true
+}
+
+function closeAllReviewed() {
+  allReviewedId.value = null
+  if (isMobile.value) closeSheet()
+  scheduleLayout()
+}
+
+// A suggestion is pending again (settings changed…): drop the empty state.
+watch(
+  () => pendingSuggestions.value.length,
+  (n) => {
+    if (n > 0 && allReviewedId.value) closeAllReviewed()
+  },
+)
+
 function complete(f: Finding, message?: string) {
   status.set(f.id, 'done')
   hasChanges.value = true
@@ -825,10 +1097,26 @@ function complete(f: Finding, message?: string) {
   }
   if (focusedId.value === f.id) focusedId.value = null
   const isSuggestion = f.mode === 'suggestion'
-  if (isSuggestion && !publishPathShown && editorShowsPublishPath(editCount.value)) {
+  if (isLastReviewed(f)) {
+    successTitles.set(f.id, message ?? STR.successSuggestion)
+    successIds.add(f.id)
+    finishingLast.value = true
+    holdPill(2000 + PILL_DELAY_MS)
+    if (isMobile.value) closeSheet()
+    setTimeout(() => {
+      successIds.delete(f.id)
+      finishingLast.value = false
+      showAllReviewed(f)
+      scheduleLayout()
+    }, 2000)
+    scheduleLayout()
+    return
+  }
+  if (isSuggestion && !publishPathShown && (guided.value || editorShowsPublishPath(editCount.value))) {
     // `showPublishPath`: once, for the first completed suggestion.
     publishPathShown = true
     publishPathId.value = f.id
+    holdPillUntilPublishPathCloses()
     if (isMobile.value) {
       closeSheet()
       setTimeout(() => openPublishPathSheet(f), 500)
@@ -836,6 +1124,7 @@ function complete(f: Finding, message?: string) {
   } else {
     successTitles.set(f.id, message ?? (isSuggestion ? STR.successSuggestion : STR.successCheck))
     successIds.add(f.id)
+    holdPill(2000 + PILL_DELAY_MS)
     setTimeout(() => {
       successIds.delete(f.id)
       scheduleLayout()
@@ -847,19 +1136,39 @@ function complete(f: Finding, message?: string) {
 
 function dismiss(f: Finding) {
   if (f.type === 'tone' && f.data?.block) dismissedToneBlocks.add(f.data.block)
+  holdPill(isMobile.value && !review.value ? 250 + PILL_DELAY_MS : PILL_DELAY_MS)
   if (isMobile.value && !review.value) {
     dismissingId.value = f.id
     setTimeout(() => {
       dismissingId.value = null
       status.set(f.id, 'dismissed')
+      if (showAllReviewedIfDone(f)) return
       closeSheet()
       scheduleLayout()
-    }, 260)
+    }, 250)
     return
   }
-  status.set(f.id, 'dismissed')
-  if (focusedId.value === f.id) focusedId.value = null
-  scheduleLayout()
+  if (review.value) {
+    status.set(f.id, 'dismissed')
+    if (focusedId.value === f.id) focusedId.value = null
+    scheduleLayout()
+    return
+  }
+  // Vector: the card fades out while sliding off to the right, then it's removed.
+  dismissingId.value = f.id
+  setTimeout(() => {
+    dismissingId.value = null
+    status.set(f.id, 'dismissed')
+    if (focusedId.value === f.id) focusedId.value = null
+    if (showAllReviewedIfDone(f)) return
+    scheduleLayout()
+  }, 100)
+}
+
+/** Scroll to a suggestion and open it (desktop card / mobile sheet). */
+function openSuggestion(f: Finding) {
+  scrollToFinding(f)
+  setTimeout(() => focus(f), isMobile.value ? 600 : 400)
 }
 
 async function act(f: Finding, action: ChoiceAction, reason?: string) {
@@ -1016,8 +1325,17 @@ function onDialogSubmit(value: string) {
 const sheetOpen = ref(false)
 const sheetRef = ref<HTMLElement | null>(null)
 const sheetHeight = ref(0)
-const sheetMode = ref<'finding' | 'publishPath'>('finding')
+const sheetMode = ref<'finding' | 'publishPath' | 'allReviewed'>('finding')
 const sheetEntering = ref(false)
+let sheetObserver: ResizeObserver | null = null
+watch(sheetRef, (el) => {
+  sheetObserver?.disconnect()
+  sheetObserver = null
+  if (!el) return
+  sheetObserver = new ResizeObserver(() => (sheetHeight.value = el.offsetHeight))
+  sheetObserver.observe(el)
+})
+onBeforeUnmount(() => sheetObserver?.disconnect())
 const rollDirection = ref<'next' | 'prev' | null>(null)
 
 const sheetFinding = computed(() =>
@@ -1032,7 +1350,7 @@ function openSheet(f: Finding) {
     sheetHeight.value = sheetRef.value?.offsetHeight ?? 0
     const rect = (f.element ?? f.ranges[0]).getBoundingClientRect()
     const sheetTop = window.innerHeight - sheetHeight.value
-    if (!(rect.top >= 56 && rect.bottom <= sheetTop - 16)) scrollToFinding(f)
+    if (proximityMode.value || !(rect.top >= 56 && rect.bottom <= sheetTop - 16)) scrollToFinding(f)
   })
 }
 
@@ -1047,6 +1365,7 @@ function openPublishPathSheet(f: Finding) {
 function closeSheet() {
   sheetOpen.value = false
   if (sheetMode.value === 'publishPath') publishPathId.value = null
+  if (sheetMode.value === 'allReviewed') allReviewedId.value = null
   sheetMode.value = 'finding'
   if (!review.value) focusedId.value = null
 }
@@ -1089,18 +1408,43 @@ function viewMore() {
 // Mobile gutter lightbulbs (one per highlight row; overlapping rows share one).
 const gutterMarks = computed(() => {
   if (!isMobile.value) return []
-  const marks: { top: number; ids: string[]; state: 'pending' | 'success' | 'check'; experimental: boolean }[] = []
+  const marks: {
+    top: number
+    /** Bottom of the rail: the highlighted lines, or the whole paragraph when suggestions stack. */
+    bottom: number
+    ids: string[]
+    state: 'pending' | 'success' | 'check'
+    experimental: boolean
+    type: string
+    block: Element | null
+  }[] = []
   for (const f of displayed.value) {
     const list = boxes.value.get(f.id)
     if (!list?.length) continue
     const top = Math.min(...list.map((b) => b.top))
-    const state = successIds.has(f.id) ? 'success' : f.mode === 'check' ? 'check' : 'pending'
-    const existing = marks.find((m) => Math.abs(m.top - top) < 20)
+    const bottom = Math.max(...list.map((b) => b.top + b.height))
+    const completed = successIds.has(f.id) || (publishPathId.value === f.id && status.get(f.id) === 'done')
+    const state = completed ? 'success' : f.mode === 'check' ? 'check' : 'pending'
+    // Stacked: suggestions in the same block (paragraph) share one rail icon with a count.
+    const block = blockOf(f.element ?? f.ranges[0]?.startContainer ?? null)
+    const existing = marks.find((m) => (block && m.block === block) || Math.abs(m.top - top) < 20)
     if (existing) {
+      existing.top = Math.min(existing.top, top)
+      existing.bottom = Math.max(existing.bottom, bottom)
       existing.ids.push(f.id)
-      if (state === 'check') existing.state = 'check'
+      // A just-completed suggestion shows its success check even when it shares the icon.
+      if (state === 'success') existing.state = 'success'
+      else if (state === 'check' && existing.state !== 'success') existing.state = 'check'
       existing.experimental = existing.experimental && !!f.experimental
-    } else marks.push({ top, ids: [f.id], state, experimental: !!f.experimental })
+    } else marks.push({ top, bottom, ids: [f.id], state, experimental: !!f.experimental, type: f.type, block })
+  }
+  // Several suggestions in one paragraph: the rail spans the whole paragraph (as in production).
+  const origin = wrapRef.value?.getBoundingClientRect()
+  for (const m of marks) {
+    if (m.ids.length < 2 || !m.block || !origin) continue
+    const r = m.block.getBoundingClientRect()
+    m.top = Math.min(m.top, r.top - origin.top)
+    m.bottom = Math.max(m.bottom, r.bottom - origin.top)
   }
   return marks
 })
@@ -1327,6 +1671,7 @@ let resizeObserver: ResizeObserver | null = null
 
 function onScroll() {
   updateViewport()
+  restartIdle()
 }
 
 onMounted(async () => {
@@ -1355,14 +1700,18 @@ onMounted(async () => {
   resizeObserver = new ResizeObserver(() => scheduleLayout())
   resizeObserver.observe(surface)
   const detection = runDetection()
-  await minimumLoad
+  if (discoverability && isMobile.value) await discoverabilityLoading(detection)
+  // Vector: stay in the loading state until suggestions are found, so the editor
+  // opens with them (no empty outline lightbulb while they load).
+  else if (!isMobile.value) await Promise.all([minimumLoad, detection])
+  else await minimumLoad
   loadingEditor.value = false
-  emit('sidebar', suggestionsOn.value && !isMobile.value)
   if (!isMobile.value && props.section) nextTick(() => scrollToSection(props.section!))
   if (sectionOnly.value) nextTick(scrollPastTopButton)
   scheduleLayout()
   await detection
   updateViewport()
+  if (discoverability) nextTick(startDiscoverability)
 })
 
 onBeforeUnmount(() => {
@@ -1371,11 +1720,268 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleLayout)
   resizeObserver?.disconnect()
   clearTimeout(layoutTimer)
+  clearTimeout(idleTimer)
+  clearInterval(cardBounceTimer)
+  clearTimeout(pillHoldTimer)
 })
 
 watch(displayed, () => scheduleLayout())
 watch([focusedId, () => successIds.size, publishPathId], () => nextTick(layoutCards))
+watch([veilActive, focusedId], () => nextTick(measureVeil))
+
+// ── Minerva "Proximity": the selected highlight wipes in left to right once the scroll ends ──
+const wipe = ref<{ id: string; phase: 'pending' | 'run' } | null>(null)
+/** The last scroll to a finding (set by smoothScrollTo). */
+let wipeScroll: { id: string; target: number } | null = null
+let cancelWipeWait: (() => void) | null = null
+
+/** Start the wipe once the page has reached the finding (or right away if it didn't scroll). */
+function checkWipe(event?: Event) {
+  const w = wipe.value
+  if (!w || w.phase !== 'pending' || wipeScroll?.id !== w.id) return
+  if (Math.abs(window.scrollY - wipeScroll.target) < 2 || event?.type === 'scrollend') runWipe()
+}
+function runWipe() {
+  cancelWipeWait?.()
+  if (wipe.value?.phase === 'pending') wipe.value = { id: wipe.value.id, phase: 'run' }
+}
+
+/**
+ * Line-by-line wipe: each line starts once the one above is mostly drawn (the ease-out curve
+ * fills ~85% in its first third), so the highlight flows from the top down. Pieces of the same
+ * line (around links…) start in turn from left to right. Long paragraphs squeeze the step so
+ * the whole wipe stays around a second.
+ */
+const WIPE_STEP = 120
+const WIPE_MAX_STAGGER = 800
+const wipeDelays = computed<number[]>(() => {
+  const list = wipe.value ? boxes.value.get(wipe.value.id) ?? [] : []
+  if (list.length < 2) return list.map(() => 0)
+  // Group the boxes into visual lines by their vertical centre.
+  const centres = [...new Set(list.map((b) => Math.round(b.top + b.height / 2)))].sort((a, b) => a - b)
+  const lines: number[] = []
+  for (const c of centres) if (!lines.length || c - lines[lines.length - 1] > 4) lines.push(c)
+  const lineOf = (b: Box) => {
+    const c = b.top + b.height / 2
+    return lines.reduce((best, l, i) => (Math.abs(l - c) < Math.abs(lines[best] - c) ? i : best), 0)
+  }
+  const step = lines.length > 1 ? Math.min(WIPE_STEP, WIPE_MAX_STAGGER / (lines.length - 1)) : WIPE_STEP
+  return list.map((b) => {
+    const line = lineOf(b)
+    const same = list.filter((o) => lineOf(o) === line)
+    const left = Math.min(...same.map((o) => o.left))
+    const right = Math.max(...same.map((o) => o.left + o.width))
+    const along = right > left ? (b.left - left) / (right - left) : 0
+    return Math.round(line * step + along * step)
+  })
+})
+
+/**
+ * "No highlighted text when unselected": only one-line highlights wipe in (suggestions and checks).
+ * Decided from the live boxes, so a check measured after it was selected is still caught.
+ */
+const wipeOn = computed(() => {
+  if (!wipe.value) return false
+  return !(quietHighlights.value && !proximityStyled.value && lineCount(wipe.value.id) > 1)
+})
+
+/** Visual lines a finding's highlight spans. */
+function lineCount(id: string) {
+  const list = boxes.value.get(id) ?? []
+  const centres = [...new Set(list.map((b) => Math.round(b.top + b.height / 2)))].sort((a, b) => a - b)
+  let lines = 0
+  let last = -Infinity
+  for (const c of centres) if (c - last > 4) (lines++, (last = c))
+  return lines
+}
+
+function armWipe(id: string) {
+  cancelWipeWait?.()
+  wipe.value = { id, phase: 'pending' }
+  let scrolled = false
+  const onScroll = (e: Event) => {
+    scrolled = true
+    checkWipe(e)
+  }
+  // No scroll under way shortly after selecting: nothing to wait for.
+  const idle = setTimeout(() => !scrolled && runWipe(), 150)
+  const cap = setTimeout(runWipe, 1500)
+  window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('scrollend', checkWipe)
+  setTimeout(checkWipe, 0)
+  cancelWipeWait = () => {
+    clearTimeout(idle)
+    clearTimeout(cap)
+    window.removeEventListener('scroll', onScroll)
+    window.removeEventListener('scrollend', checkWipe)
+    cancelWipeWait = null
+  }
+}
+
+watch(
+  () => {
+    if (!focusedId.value) return null
+    if (review.value) return quietHighlights.value ? focusedId.value : null
+    if (isMobile.value)
+      return (proximityStyled.value || quietHighlights.value) && sheetOpen.value && sheetMode.value === 'finding' ? focusedId.value : null
+    return quietHighlights.value ? focusedId.value : null
+  },
+  (id) => {
+    if (id) armWipe(id)
+    else {
+      cancelWipeWait?.()
+      wipe.value = null
+    }
+  },
+)
+onBeforeUnmount(() => cancelWipeWait?.())
 watch(boxes, () => updateViewport())
+
+// ── Suggestions discoverability ──────────────────────────────────────────────
+//
+// Only where an `ArticleLive` opts in (`suggestions-indicator`). Two flows,
+// from "First time using suggestion mode" (read when the editor opens):
+// - first time: welcome dialog → "View suggestions" (opens the first one) /
+//   "Not now" (no nudges) / X (pulse the first visible
+//   suggestion, or bounce "View suggestions" when none is visible);
+// - next times: no dialog; after a few idle seconds (no scrolling or typing)
+//   the first visible suggestion or "View suggestions" bounces, and leaving
+//   without changes asks "Before you go".
+// Desktop has no gutter lightbulbs: its first visible card bounces instead.
+
+const discoverability = !!inject(PROTOWIKI_EDIT_SUGGESTIONS_INDICATOR, null)
+const firstTime = suggestionSettings.firstTime
+const IDLE_MS = 3000
+
+/** Minerva loading messages: 1 "Loading editor…", 2 "Looking for suggestions…", 3 "N found", 4 fade out. */
+const loadingPhase = ref(0)
+const loadingFound = ref(0)
+const welcomeOpen = ref(false)
+const welcomeCount = ref(0)
+const beforeYouGoOpen = ref(false)
+/** "Don't show this again": saved when the dialog closes, however it closes. */
+const beforeYouGoDontShow = ref(false)
+function saveBeforeYouGoChoice() {
+  if (beforeYouGoDontShow.value) suggestionSettings.hideBeforeYouGo = true
+}
+watch(beforeYouGoOpen, (open) => {
+  if (!open) saveBeforeYouGoChoice()
+})
+/** Came in through the welcome's "View suggestions": publish prompt on the first completion. */
+const guided = ref(false)
+/** 'pulse': first-time nudge (always on). 'idle': next-times nudge after IDLE_MS. */
+const nudgeMode = ref<'pulse' | 'idle' | null>(null)
+const idle = ref(false)
+let idleTimer: ReturnType<typeof setTimeout> | undefined
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function discoverabilityLoading(detection: Promise<void>) {
+  loadingPhase.value = 1
+  await wait(1200)
+  loadingPhase.value = 2
+  await Promise.all([detection, wait(1000)])
+  // No "N suggestions found" step: straight from "Looking for suggestions…" to fading out.
+  loadingPhase.value = 4
+  await wait(300)
+  loadingPhase.value = 0
+}
+
+function startDiscoverability() {
+  if (!pendingSuggestions.value.length) return
+  if (firstTime) {
+    welcomeCount.value = pendingSuggestions.value.length
+    welcomeOpen.value = true
+    return
+  }
+  nudgeMode.value = 'idle'
+  restartIdle()
+}
+
+function restartIdle() {
+  clearTimeout(idleTimer)
+  idle.value = false
+  if (nudgeMode.value !== 'idle') return
+  idleTimer = setTimeout(() => (idle.value = true), IDLE_MS)
+}
+
+/** Opening any suggestion ends the nudges. */
+watch(focusedId, (id) => {
+  if (!id || !nudgeMode.value) return
+  nudgeMode.value = null
+  clearTimeout(idleTimer)
+  idle.value = false
+})
+
+const nudging = computed(
+  () =>
+    !!nudgeMode.value &&
+    (nudgeMode.value === 'pulse' || idle.value) &&
+    !focusedId.value &&
+    !sheetOpen.value &&
+    !review.value &&
+    suggestionsOn.value,
+)
+const pulseMarkId = computed(() => (nudging.value && nudgeMode.value === 'pulse' && isMobile.value ? firstVisibleId.value : null))
+const bounceMarkId = computed(() => (nudging.value && nudgeMode.value === 'idle' && isMobile.value ? firstVisibleId.value : null))
+/**
+ * Desktop cards. First time: the bounce goes through the visible cards in
+ * order, one bounce each (first, second, third… and round again).
+ * Next times: the first visible card.
+ */
+const cardBounceStep = ref(0)
+const cardBounceSequence = computed(() => nudging.value && nudgeMode.value === 'pulse' && !isMobile.value)
+let cardBounceTimer: ReturnType<typeof setInterval> | undefined
+watch(cardBounceSequence, (on) => {
+  clearInterval(cardBounceTimer)
+  cardBounceStep.value = 0
+  if (on) cardBounceTimer = setInterval(() => cardBounceStep.value++, 2000)
+})
+watch(visibleIds, () => (cardBounceStep.value = 0))
+const bounceCardId = computed(() => {
+  if (!nudging.value || isMobile.value) return null
+  if (!cardBounceSequence.value) return firstVisibleId.value
+  const ids = visibleIds.value
+  return ids.length ? ids[cardBounceStep.value % ids.length] : null
+})
+const pillBouncing = computed(() => nudging.value && !firstVisibleId.value)
+
+function openFirstSuggestion() {
+  const first = pendingDisplayed.value.find((f) => f.mode === 'suggestion')
+  if (first) openSuggestion(first)
+}
+
+/** Welcome dialog buttons close it themselves; any other close is the X. */
+let welcomeChoice = false
+function welcomeViewSuggestions() {
+  welcomeChoice = true
+  welcomeOpen.value = false
+  pillWaitsForAction.value = true
+  guided.value = true
+  openFirstSuggestion()
+}
+function welcomeNotNow() {
+  welcomeChoice = true
+  welcomeOpen.value = false
+  pillWaitsForAction.value = true
+}
+function onWelcomeOpen(open: boolean) {
+  welcomeOpen.value = open
+  if (open || welcomeChoice) return
+  nudgeMode.value = 'pulse'
+}
+
+function beforeYouGoViewSuggestions() {
+  saveBeforeYouGoChoice()
+  beforeYouGoOpen.value = false
+  openFirstSuggestion()
+}
+function beforeYouGoLeave() {
+  // Saved here: leaving unmounts the editor before the watcher would run.
+  saveBeforeYouGoChoice()
+  beforeYouGoOpen.value = false
+  emit('exit')
+}
 
 // ── Leaving the editor ───────────────────────────────────────────────────────
 
@@ -1384,6 +1990,10 @@ const leaveOpen = ref(false)
 
 function requestExit() {
   if (hasChanges.value) leaveOpen.value = true
+  else if (discoverability && !firstTime && !suggestionSettings.hideBeforeYouGo && pendingSuggestions.value.length) {
+    beforeYouGoDontShow.value = false
+    beforeYouGoOpen.value = true
+  }
   else emit('exit')
 }
 
@@ -1396,8 +2006,20 @@ function discardEdits() {
 defineExpose({ hasChanges, requestExit })
 
 /** Card icon: alert for checks, dashed lightbulb for experimental suggestions. */
-const iconFor = (f: Finding) =>
-  f.mode === 'check' ? cdxIconAlert : f.experimental ? cdxIconLightbulbDashed : cdxIconLightbulb
+/** Suggestion icon: the lightbulb, or a contextual icon per category (Mock settings → Other settings). */
+function suggestionIcon(type: string, experimental: boolean) {
+  if (suggestionSettings.suggestionIcons === 'contextual') {
+    const icon = contextualIcon(type)
+    if (icon) return icon
+  }
+  return experimental ? cdxIconLightbulbDashed : cdxIconLightbulb
+}
+const iconFor = (f: Finding) => (f.mode === 'check' ? cdxIconAlert : suggestionIcon(f.type, !!f.experimental))
+/** "Contextual icons V2": the contextual icon as a badge on the lightbulb (suggestions only). */
+function badgeIcon(type: string, mode: string) {
+  if (mode === 'check' || suggestionSettings.suggestionIcons !== 'contextualBadge') return null
+  return contextualIcon(type) ?? null
+}
 
 const subheadingFor = (f: Finding) =>
   f.experimental ? (f.mode === 'check' ? 'Experimental edit check for testing' : 'Experimental suggestion for testing') : null
@@ -1412,9 +2034,13 @@ const titleFor = (f: Finding) =>
     :data-skin="skin"
     :class="{
       've-editor--suggestions': suggestionsOn,
-      've-editor--glow': glow,
+      've-editor--hl-rail': suggestionSettings.highlightStyle === 'rail',
       've-editor--review': !!review,
       've-editor--sheet-open': sheetOpen,
+      've-editor--veil': veilActive,
+      've-editor--proximity': proximityStyled,
+      've-editor--near': proximityStyled,
+      've-editor--quiet': quietHighlights,
       've-editor--loading': loadingEditor,
     }"
   >
@@ -1428,12 +2054,15 @@ const titleFor = (f: Finding) =>
       :can-publish="hasChanges && !publishing"
       :review="!!review"
       :loading="loadingEditor"
+      :loading-phase="loadingPhase"
+      :loading-found="loadingFound"
       @undo="undo"
       @redo="redo"
       @close="requestExit"
       @publish="publish"
       @back="leaveReview"
       @text-style="textStyle"
+      @empty-toast="showEmptyToast"
     />
 
     <!-- Vector: the tagline sits under the editor toolbar. -->
@@ -1458,14 +2087,27 @@ const titleFor = (f: Finding) =>
         <div class="ve-editor__highlights" aria-hidden="true">
           <template v-for="f in displayed" :key="f.id">
             <div
-              v-for="(b, i) in boxes.get(f.id) ?? []"
+              v-for="(b, i) in allReviewedId === f.id ? [] : boxes.get(f.id) ?? []"
               :key="i"
               class="ve-hl"
-              :class="[`ve-hl--${highlightState(f)}`, `ve-hl--${f.mode}`]"
-              :style="{ top: `${b.top}px`, left: `${b.left}px`, width: `${b.width}px`, height: `${b.height}px` }"
+              :class="[
+                `ve-hl--${highlightState(f)}`,
+                `ve-hl--${f.mode}`,
+                {
+                  've-hl--wipe-pending': wipeOn && wipe?.id === f.id && wipe.phase === 'pending',
+                  've-hl--wipe': wipeOn && wipe?.id === f.id && wipe.phase === 'run',
+                },
+              ]"
+              :style="{
+                top: `${b.top}px`,
+                left: `${b.left}px`,
+                width: `${b.width}px`,
+                height: `${b.height}px`,
+                '--ve-wipe-delay': wipe?.id === f.id ? `${wipeDelays[i] ?? 0}ms` : undefined,
+              }"
             />
             <div
-              v-if="!isMobile && blockBars.get(f.id)"
+              v-if="!isMobile && allReviewedId !== f.id && blockBars.get(f.id)"
               class="ve-hl-bar"
               :class="[`ve-hl-bar--${highlightState(f)}`, `ve-hl-bar--${f.mode}`]"
               :style="{ top: `${blockBars.get(f.id)!.top}px`, height: `${blockBars.get(f.id)!.height}px` }"
@@ -1493,14 +2135,23 @@ const titleFor = (f: Finding) =>
         />
 
         <!-- Mobile gutter -->
-        <div v-if="isMobile && (suggestionsOn || pendingChecks.length)" class="ve-gutter" aria-hidden="false">
-          <button
+        <div v-if="isMobile && ((suggestionsOn && (detecting || badgeCount > 0 || finishingLast)) || pendingChecks.length)" class="ve-gutter" aria-hidden="false">
+          <component
+            :is="proximityStyled ? CdxButton : 'button'"
             v-for="mark in gutterMarks"
             :key="mark.ids.join()"
             type="button"
+            v-bind="proximityStyled ? { weight: 'quiet', size: 'small' } : {}"
             class="ve-gutter__mark"
-            :class="`ve-gutter__mark--${mark.state}`"
-            :style="{ top: `${mark.top}px` }"
+            :class="[
+              `ve-gutter__mark--${mark.state}`,
+              {
+                've-gutter__mark--selected': sheetOpen && !!focusedId && mark.ids.includes(focusedId),
+                've-gutter__mark--pulse': !!pulseMarkId && mark.ids.includes(pulseMarkId),
+                've-gutter__mark--bounce': !!bounceMarkId && mark.ids.includes(bounceMarkId),
+              },
+            ]"
+            :style="{ top: `${mark.top}px`, '--ve-rail-height': `${Math.max(20, mark.bottom - mark.top)}px` }"
             :aria-label="mark.state === 'check' ? 'Show check' : 'Show suggestion'"
             @mousedown.prevent
             @click.stop="openMark(mark.ids)"
@@ -1511,11 +2162,40 @@ const titleFor = (f: Finding) =>
             </svg>
             <CdxIcon
               v-else
-              :icon="mark.state === 'check' ? cdxIconAlert : mark.experimental ? cdxIconLightbulbDashed : cdxIconLightbulb"
+              :icon="mark.state === 'check' ? cdxIconAlert : suggestionIcon(mark.type, mark.experimental)"
+              :size="proximityStyled ? 'small' : 'medium'"
             />
-            <span v-if="mark.ids.length > 1" class="ve-gutter__count">{{ mark.ids.length }}</span>
-          </button>
+            <CdxIcon
+              v-if="mark.state !== 'success' && mark.ids.length === 1 && badgeIcon(mark.type, mark.state)"
+              class="ve-icon-badge"
+              size="x-small"
+              :icon="badgeIcon(mark.type, mark.state)!"
+            />
+            <span v-if="mark.ids.length > 1 && mark.state !== 'success'" class="ve-gutter__count">{{ mark.ids.length }}</span>
+          </component>
         </div>
+
+        <!-- Minerva overlay: covers all but the open suggestion's block; a tap closes the sheet. -->
+        <Transition name="ve-veil">
+          <div
+            v-if="veilActive && veilBand"
+            class="ve-veil ve-veil--above"
+            :style="{ height: `calc(100vh + ${Math.max(0, veilBand.top)}px)` }"
+            aria-hidden="true"
+            @mousedown.prevent
+            @click="closeSheet"
+          />
+        </Transition>
+        <Transition name="ve-veil">
+          <div
+            v-if="veilActive && veilBand"
+            class="ve-veil ve-veil--below"
+            :style="{ top: `${veilBand.bottom}px` }"
+            aria-hidden="true"
+            @mousedown.prevent
+            @click="closeSheet"
+          />
+        </Transition>
       </div>
 
       <div v-if="sectionOnly && !loadingEditor && !sectionEdges.last" class="ve-full-page ve-full-page--bottom">
@@ -1560,17 +2240,41 @@ const titleFor = (f: Finding) =>
             :ref="(el) => setCardEl(f.id, el)"
             class="ve-card"
             :class="{
-              've-card--expanded': focusedId === f.id || publishPathId === f.id || successIds.has(f.id) || !!review,
+              've-card--expanded':
+                focusedId === f.id || publishPathId === f.id || allReviewedId === f.id || successIds.has(f.id) || !!review,
               've-card--hover': hoverId === f.id,
               've-card--check': f.mode === 'check',
-              've-card--success': successIds.has(f.id) || publishPathId === f.id,
+              've-card--success': successIds.has(f.id) || publishPathId === f.id || allReviewedId === f.id,
+              've-card--bounce': bounceCardId === f.id,
+              've-card--dismiss': dismissingId === f.id,
+              've-card--unplaced': !placedCardIds.has(f.id),
             }"
             :style="{ top: `${cardTops.get(f.id) ?? 0}px` }"
             @mouseenter="hoverId = f.id"
             @mouseleave="hoverId = null"
           >
+            <!-- No more suggestions (all reviewed) -->
+            <template v-if="allReviewedId === f.id">
+              <div class="ve-card__header ve-card__header--static">
+                <span class="ve-card__icon ve-card__icon--subtle"><CdxIcon :icon="cdxIconLightbulbOutline" /></span>
+                <span class="ve-card__title ve-card__title--bold">No more suggestions</span>
+                <button type="button" class="ve-card__close" aria-label="Close" @click="closeAllReviewed">
+                  <CdxIcon :icon="cdxIconClose" />
+                </button>
+              </div>
+              <div class="ve-card__content">
+                <p class="ve-card__text">{{ allReviewedText }}</p>
+                <div class="ve-card__actions">
+                  <CdxButton @click="closeAllReviewed">Continue editing</CdxButton>
+                  <CdxButton v-if="completedSuggestionCount" action="progressive" @click="closeAllReviewed(); publish()">
+                    {{ STR.publish }}
+                  </CdxButton>
+                </div>
+              </div>
+            </template>
+
             <!-- Publish path -->
-            <template v-if="publishPathId === f.id">
+            <template v-else-if="publishPathId === f.id">
               <div class="ve-card__header ve-card__header--static">
                 <span class="ve-card__icon ve-card__icon--success"><CdxIcon :icon="cdxIconSuccess" /></span>
                 <span class="ve-card__title">{{ STR.successSuggestion }}</span>
@@ -1604,7 +2308,10 @@ const titleFor = (f: Finding) =>
                 :aria-expanded="focusedId === f.id || !!review"
                 @click="review ? null : focusedId === f.id ? focus(null) : focus(f)"
               >
-                <span class="ve-card__icon"><CdxIcon :icon="iconFor(f)" /></span>
+                <span class="ve-card__icon">
+                  <CdxIcon :icon="iconFor(f)" />
+                  <CdxIcon v-if="badgeIcon(f.type, f.mode)" class="ve-icon-badge" size="x-small" :icon="badgeIcon(f.type, f.mode)!" />
+                </span>
                 <span class="ve-card__heading">
                   <span class="ve-card__title">{{ f.title }}</span>
                   <span v-if="subheadingFor(f) && (focusedId === f.id || review)" class="ve-card__subheading">
@@ -1621,12 +2328,12 @@ const titleFor = (f: Finding) =>
 
         <!-- View suggestions -->
         <div
-          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed"
+          v-if="!review && suggestionsOn && !anyInView && offscreenDirection && pendingDisplayed.length && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld && !pillWaitsForAction"
           class="ve-view-pill-wrap"
           :class="{ 've-view-pill-wrap--up': offscreenDirection === 'up' }"
           :style="pillColumn"
         >
-          <div class="ve-view-pill" role="group" aria-label="View suggestions">
+          <div class="ve-view-pill" :class="{ 've-view-pill--bounce': pillBouncing }" role="group" aria-label="View suggestions">
             <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
               <CdxIcon :icon="bannerDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
               View suggestions
@@ -1647,10 +2354,15 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: View suggestions banner -->
     <div
-      v-if="isMobile && !review && suggestionsOn && !detecting && !seenOnMobile && !sheetOpen && (pendingDisplayed.length || onlyElsewhere) && !bannerDismissed"
+      v-if="isMobile && !review && suggestionsOn && !detecting && !sheetOpen && (onlyElsewhere || (pendingDisplayed.length && (discoverability ? !anyInView : !seenOnMobile))) && !bannerDismissed && !welcomeOpen && !beforeYouGoOpen && !pillHeld && !pillWaitsForAction"
       class="ve-mobile-banner"
     >
-      <div class="ve-view-pill ve-view-pill--mobile" role="group" aria-label="View suggestions">
+      <div
+        class="ve-view-pill ve-view-pill--mobile"
+        :class="{ 've-view-pill--bounce': pillBouncing }"
+        role="group"
+        aria-label="View suggestions"
+      >
         <CdxButton action="progressive" size="large" class="ve-view-pill__main" @click="viewSuggestions">
           <CdxIcon :icon="bannerDirection === 'up' ? cdxIconArrowUp : cdxIconArrowDown" />
           View suggestions
@@ -1669,14 +2381,26 @@ const titleFor = (f: Finding) =>
 
     <!-- Mobile: bottom sheet -->
     <div
-      v-if="isMobile && sheetOpen && (sheetFinding || review)"
+      v-if="isMobile && sheetOpen && (sheetFinding || review || sheetMode === 'allReviewed')"
       ref="sheetRef"
       class="ve-sheet"
-      :class="{ 've-sheet--check': (review ? currentReview : sheetFinding)?.mode === 'check', 've-sheet--entering': sheetEntering }"
+      :class="{ 've-sheet--check': (review ? currentReview : sheetFinding)?.mode === 'check', 've-sheet--entering': sheetEntering, 've-sheet--proximity': proximityStyled && !review }"
       role="dialog"
       :aria-label="review ? STR.reviewChanges : 'Suggestion'"
     >
-      <template v-if="sheetMode === 'publishPath' && sheetFinding">
+      <template v-if="sheetMode === 'allReviewed'">
+        <div class="ve-sheet__header ve-sheet__header--subtle">
+          <CdxIcon :icon="cdxIconLightbulbOutline" />
+          <div class="ve-sheet__title">No more suggestions</div>
+          <button type="button" class="ve-sheet__icon-btn" aria-label="Close" @click="closeSheet"><CdxIcon :icon="cdxIconClose" /></button>
+        </div>
+        <p class="ve-sheet__text">{{ allReviewedText }}</p>
+        <div class="ve-sheet__actions">
+          <CdxButton @click="closeSheet">{{ completedSuggestionCount ? 'View more suggestions' : 'Continue editing' }}</CdxButton>
+          <CdxButton v-if="completedSuggestionCount" action="progressive" @click="closeSheet(); publish()">{{ STR.publish }}</CdxButton>
+        </div>
+      </template>
+      <template v-else-if="sheetMode === 'publishPath' && sheetFinding">
         <div class="ve-sheet__header ve-sheet__header--success">
           <CdxIcon :icon="cdxIconSuccess" />
           <div class="ve-sheet__title">{{ STR.successSuggestion }}</div>
@@ -1697,7 +2421,15 @@ const titleFor = (f: Finding) =>
           }"
         >
           <div class="ve-sheet__header">
-            <CdxIcon :icon="iconFor((review ? currentReview : sheetFinding)!)" />
+            <span class="ve-sheet__icon">
+              <CdxIcon :icon="iconFor((review ? currentReview : sheetFinding)!)" />
+              <CdxIcon
+                v-if="badgeIcon((review ? currentReview : sheetFinding)!.type, (review ? currentReview : sheetFinding)!.mode)"
+                class="ve-icon-badge"
+                size="x-small"
+                :icon="badgeIcon((review ? currentReview : sheetFinding)!.type, (review ? currentReview : sheetFinding)!.mode)!"
+              />
+            </span>
             <div class="ve-sheet__heading">
               <div class="ve-sheet__title">{{ (review ? currentReview : sheetFinding)!.title }}</div>
               <div v-if="subheadingFor((review ? currentReview : sheetFinding)!)" class="ve-sheet__subheading">
@@ -1731,15 +2463,64 @@ const titleFor = (f: Finding) =>
     </div>
 
     <!-- Toggle toasts: dark Minerva toast / Codex toast on desktop -->
-    <div v-if="isMobile && toast" :key="toast.id" class="ve-mobile-toast" role="status" aria-live="polite">{{ toast.text }}</div>
-    <CdxToast v-else-if="toast" :key="toast.id" type="notice" @user-dismissed="toast = null">{{ toast.text }}</CdxToast>
+    <div
+      v-if="isMobile && toast"
+      :key="toast.id"
+      class="ve-mobile-toast"
+      role="status"
+      aria-live="polite"
+    >
+      <span>{{ toast.text }}</span>
+    </div>
+    <CdxToast v-else-if="toast" :key="toast.id" type="notice" prevent-user-dismiss>{{ toast.text }}</CdxToast>
+
+    <!-- Discoverability, first time: welcome. Neutral Baby Globe, Wikimedia Foundation, CC BY-SA 4.0
+         (https://commons.wikimedia.org/wiki/File:Neutral_Baby_Globe.gif), scaled down. -->
+    <CdxDialog
+      :open="welcomeOpen"
+      class="ve-welcome"
+      :class="{ 've-welcome--mobile': isMobile }"
+      title="Discover ways to improve this article"
+      use-close-button
+      @update:open="onWelcomeOpen"
+    >
+      <p class="ve-welcome__text">
+        There {{ welcomeCount === 1 ? 'is 1 suggestion' : `are ${welcomeCount} suggestions` }} to improve this
+        article. They're optional guided tasks that you can complete or dismiss.
+      </p>
+      <img class="ve-welcome__image" :src="welcomeGlobe" width="320" height="256" alt="" />
+      <template #footer>
+        <div class="ve-leave__actions ve-leave__actions--stacked">
+          <CdxButton :size="isMobile ? 'large' : 'medium'" action="progressive" weight="primary" @click="welcomeViewSuggestions">View suggestions</CdxButton>
+          <CdxButton :size="isMobile ? 'large' : 'medium'" @click="welcomeNotNow">Not now</CdxButton>
+        </div>
+      </template>
+    </CdxDialog>
+
+    <!-- Discoverability, next times: leaving without changes while suggestions remain. -->
+    <CdxDialog v-model:open="beforeYouGoOpen" class="ve-leave" title="Before you go" use-close-button>
+      <p class="ve-before-you-go__text">There are some guided tasks to improve this article. Do you want to try them?</p>
+      <CdxCheckbox v-model="beforeYouGoDontShow" class="ve-before-you-go__dont-show">Don’t show this again</CdxCheckbox>
+      <template #footer>
+        <div class="ve-leave__actions" :class="{ 've-leave__actions--stacked': isMobile }">
+          <template v-if="isMobile">
+            <CdxButton :size="isMobile ? 'large' : 'medium'" action="progressive" @click="beforeYouGoViewSuggestions">View suggestions</CdxButton>
+            <CdxButton :size="isMobile ? 'large' : 'medium'" @click="beforeYouGoLeave">Leave the editor</CdxButton>
+          </template>
+          <template v-else>
+            <CdxButton @click="beforeYouGoLeave">Leave the editor</CdxButton>
+            <CdxButton action="progressive" @click="beforeYouGoViewSuggestions">View suggestions</CdxButton>
+          </template>
+        </div>
+      </template>
+    </CdxDialog>
 
     <CdxDialog v-model:open="leaveOpen" class="ve-leave" title="Are you sure?" use-close-button>
       Are you sure you want to leave editing mode without publishing first?
       <template #footer>
         <div class="ve-leave__actions" :class="{ 've-leave__actions--stacked': isMobile }">
-          <CdxButton action="destructive" @click="discardEdits">Discard edits</CdxButton>
-          <CdxButton @click="leaveOpen = false">Continue editing</CdxButton>
+          <CdxButton :size="isMobile ? 'large' : 'medium'" action="destructive" @click="discardEdits">Discard edits</CdxButton>
+          <CdxButton :size="isMobile ? 'large' : 'medium'" @click="leaveOpen = false">Continue editing</CdxButton>
         </div>
       </template>
     </CdxDialog>
@@ -1827,6 +2608,125 @@ const titleFor = (f: Finding) =>
 .ve-leave__actions--stacked .cdx-button {
   width: 100%;
   max-width: none;
+}
+
+/* Discoverability: "Before you go" */
+.ve-before-you-go__text {
+  margin: 0;
+}
+
+.ve-before-you-go__dont-show {
+  margin: 16px 0 0;
+}
+
+/* Discoverability: welcome dialog */
+.ve-welcome__text {
+  margin: 0;
+}
+
+.ve-welcome__image {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  margin: 16px auto 0;
+}
+
+/* Discoverability nudges */
+.ve-view-pill.ve-view-pill--bounce {
+  animation:
+    ve-pill-in 220ms ease,
+    ve-nudge-bounce 2s ease-in-out 220ms infinite;
+}
+
+.ve-card.ve-card--bounce {
+  animation: ve-nudge-bounce 2s ease-in-out infinite;
+}
+
+@keyframes ve-nudge-bounce {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  }
+  20% {
+    transform: translateY(-7px);
+    animation-timing-function: cubic-bezier(0, 0, 0.4, 1);
+  }
+  38% {
+    transform: translateY(0);
+    animation-timing-function: ease-in;
+  }
+  50% {
+    transform: translateY(-3px);
+    animation-timing-function: ease-out;
+  }
+  62%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.ve-gutter__mark--pulse::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: rgba(51, 102, 204, 0.2);
+  transform: translate(-50%, -50%);
+  animation: ve-mark-pulse 1.5s ease-out infinite;
+  pointer-events: none;
+}
+
+.ve-gutter__mark--pulse .cdx-icon {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes ve-mark-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(51, 102, 204, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 17px rgba(51, 102, 204, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(51, 102, 204, 0);
+  }
+}
+
+.ve-gutter__mark--bounce .cdx-icon {
+  animation: ve-mark-bounce 3.2s ease-in-out infinite;
+}
+
+@keyframes ve-mark-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  12% {
+    transform: translateY(-6px);
+  }
+  24% {
+    transform: translateY(0);
+  }
+  36% {
+    transform: translateY(-3px);
+  }
+  48% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ve-view-pill.ve-view-pill--bounce,
+  .ve-card.ve-card--bounce,
+  .ve-gutter__mark--pulse::after,
+  .ve-gutter__mark--bounce .cdx-icon {
+    animation: none;
+  }
 }
 
 .ve-editor :deep(.ve-section-hidden) {
@@ -2071,6 +2971,96 @@ const titleFor = (f: Finding) =>
   background-color: var(--background-color-success-subtle, #dff2eb);
 }
 
+/* Minerva overlay (Mock settings → "Overlay when opening a suggestion"). */
+.ve-veil {
+  position: absolute;
+  left: -16px;
+  right: -16px;
+  z-index: 4;
+  background-color: var(--background-color-backdrop-light, rgba(255, 255, 255, 0.65));
+}
+.ve-veil--above {
+  bottom: auto;
+  top: -100vh;
+}
+.ve-veil--below {
+  bottom: 0;
+}
+.ve-veil-enter-active,
+.ve-veil-leave-active {
+  transition: opacity var(--transition-duration-medium, 250ms) var(--transition-timing-function-system, ease);
+}
+.ve-veil-enter-from,
+.ve-veil-leave-to {
+  opacity: 0;
+}
+
+/* …and the selected highlight wipes in from left to right. */
+.ve-editor--veil .ve-hl--selected {
+  animation: ve-hl-wipe var(--transition-duration-medium, 250ms) var(--transition-timing-function-user, ease-out) both;
+}
+@keyframes ve-hl-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ve-editor--veil .ve-hl--selected {
+    animation: none;
+  }
+}
+
+/*
+ * Minerva "Proximity": the selected highlight wipes in left to right after the scroll ends.
+ * A one-colour gradient grows from 0% to 100% wide, one line after another from the top down.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .ve-hl.ve-hl--selected.ve-hl--wipe-pending,
+  .ve-hl.ve-hl--selected.ve-hl--wipe {
+    --ve-wipe-color: var(--background-color-progressive-subtle, #e8eeff);
+    background-color: transparent;
+    background-image: linear-gradient(var(--ve-wipe-color), var(--ve-wipe-color));
+    background-repeat: no-repeat;
+    background-size: 0% 100%;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    transition: none;
+  }
+  .ve-hl.ve-hl--check.ve-hl--wipe-pending,
+  .ve-hl.ve-hl--check.ve-hl--wipe {
+    --ve-wipe-color: var(--background-color-warning-subtle, #fdf2d5);
+  }
+  .ve-hl.ve-hl--selected.ve-hl--wipe {
+    animation: ve-hl-grow 400ms cubic-bezier(0.23, 1, 0.32, 1) var(--ve-wipe-delay, 0ms) both;
+  }
+}
+@keyframes ve-hl-grow {
+  from {
+    background-size: 0% 100%;
+  }
+  to {
+    background-size: 100% 100%;
+  }
+}
+
+/* Mock settings → "Just rail", and Minerva "Colored bottom sheet": unselected highlights have
+   no background, only the rail. */
+.ve-editor--hl-rail .ve-hl--default,
+.ve-editor--near .ve-hl--default {
+  background-color: var(--background-color-transparent, transparent);
+}
+
+/* "No highlighted text when unselected": none for suggestions, a faint one (40%) for checks. */
+.ve-editor--quiet .ve-hl--suggestion.ve-hl--default {
+  background-color: var(--background-color-transparent, transparent);
+}
+.ve-editor--quiet .ve-hl--check.ve-hl--default {
+  background-color: color-mix(in srgb, var(--background-color-warning-subtle, #fdf2d5) 40%, transparent);
+}
+
 .ve-hl-bar {
   position: absolute;
   left: -12px;
@@ -2083,12 +3073,16 @@ const titleFor = (f: Finding) =>
   background-color: var(--border-color-warning, #987027);
 }
 
-.ve-hl-bar--success {
-  background-color: var(--color-success, #14866d);
+/* Desktop "No highlighted text when unselected": thinner rail when unselected (1.5px / 2px). */
+.ve-editor--quiet .ve-hl-bar {
+  width: 1.5px;
+}
+.ve-editor--quiet .ve-hl-bar--selected {
+  width: 2px;
 }
 
-.ve-editor--glow .ve-card {
-  filter: drop-shadow(0 0 10px rgba(51, 102, 204, 0.25));
+.ve-hl-bar--success {
+  background-color: var(--color-success, #14866d);
 }
 
 /* Review: dim everything except the checked blocks */
@@ -2114,6 +3108,18 @@ const titleFor = (f: Finding) =>
   width: 325px;
 }
 
+.ve-card--dismiss {
+  pointer-events: none;
+  animation: ve-card-dismiss var(--transition-duration-base, 100ms) var(--transition-timing-function-user, ease-out) forwards;
+}
+
+@keyframes ve-card-dismiss {
+  to {
+    opacity: 0;
+    translate: 120px 0;
+  }
+}
+
 .ve-card {
   position: absolute;
   left: 0;
@@ -2123,11 +3129,17 @@ const titleFor = (f: Finding) =>
   border-radius: var(--border-radius-base, 2px);
   overflow: hidden;
   transition:
-    top 250ms ease,
+    top var(--transition-duration-medium, 250ms) var(--transition-timing-function-system, ease),
     border-color 0.2s ease,
     box-shadow 0.2s ease;
   user-select: none;
   z-index: 1;
+}
+
+/* Not laid out yet: no slide from top: 0 into place. */
+.ve-card--unplaced {
+  visibility: hidden;
+  transition: none;
 }
 
 .ve-card--hover {
@@ -2208,7 +3220,29 @@ const titleFor = (f: Finding) =>
   border-top: 1px solid var(--border-color-muted, #dadde3);
 }
 
+/* "Contextual icons V2": x-small contextual badge at the lightbulb's bottom-right. */
+.ve-icon-badge.cdx-icon {
+  position: absolute;
+  right: -7px;
+  bottom: -3px;
+  pointer-events: none;
+}
+
+.ve-gutter__mark .ve-icon-badge.cdx-icon {
+  right: -6px;
+  bottom: -4px;
+}
+
+.ve-sheet__icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  flex-shrink: 0;
+}
+
 .ve-card__icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2223,6 +3257,29 @@ const titleFor = (f: Finding) =>
 
 .ve-card__icon--success .cdx-icon {
   color: var(--color-success, #14866d);
+}
+
+.ve-card__icon--subtle .cdx-icon,
+.ve-sheet__header--subtle > .cdx-icon {
+  color: var(--color-subtle, #54595d) !important;
+}
+
+.ve-card__title--bold {
+  font-weight: 700;
+}
+
+.ve-card__close {
+  display: inline-flex;
+  margin-left: auto;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--color-base, #202122);
+  cursor: pointer;
+}
+
+.ve-card__close .cdx-icon {
+  color: var(--color-base, #202122);
 }
 
 .ve-card__heading {
@@ -2245,7 +3302,12 @@ const titleFor = (f: Finding) =>
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-block: 8px;
+}
+
+/* Start icon: centred on the title's first line (26px line height). */
+.ve-sheet__header > .cdx-icon {
+  margin-block: 3px;
+  flex-shrink: 0;
 }
 
 .ve-card__title {
@@ -2396,10 +3458,12 @@ const titleFor = (f: Finding) =>
 .ve-editor[data-skin='mobile'].ve-editor--suggestions .ve-editor__layout::after {
   content: '';
   position: absolute;
-  top: 0;
+  /* Up to the fixed toolbar: over the page's 48px toolbar padding and the 6px
+     of Minerva header still showing under the toolbar. */
+  top: -54px;
   right: -16px;
   width: 44px;
-  height: 100%;
+  height: calc(100% + 54px);
   background-color: var(--background-color-neutral-subtle, #f8f9fa);
   border-left: 1px solid var(--border-color-muted, #dadde3);
   pointer-events: none;
@@ -2407,6 +3471,44 @@ const titleFor = (f: Finding) =>
 
 .ve-editor[data-skin='mobile'] .ve-hl {
   border-radius: 0;
+}
+
+/* Minerva edit mode: the infobox spans the full content width, the same as the article text. */
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(table.infobox) {
+  float: none;
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* {{Multiple image}} inside the infobox: shrink its fixed-width rows to fit inside the box. */
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner) {
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .trow) {
+  flex-wrap: nowrap;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .tsingle) {
+  /* The inline width stays the flex basis, so images keep their proportions while shrinking. */
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: none !important;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .tsingle > div:first-child) {
+  max-width: 100%;
+}
+
+.ve-editor[data-skin='mobile'] .ve-editor__surface :deep(.infobox .multiimageinner .tsingle img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .ve-gutter {
@@ -2437,10 +3539,16 @@ const titleFor = (f: Finding) =>
   position: absolute;
   left: -13px;
   top: 0;
-  width: 2px;
-  height: 100%;
+  /* 1.5px; 2px only for the selected suggestion/check. */
+  width: 1.5px;
+  /* The rail covers the highlighted lines (or the whole paragraph for stacked suggestions). */
+  height: var(--ve-rail-height, 100%);
   border-radius: 2px;
   background-color: var(--color-progressive, #36c);
+}
+
+.ve-gutter__mark--selected::before {
+  width: 2px;
 }
 
 .ve-gutter__mark .cdx-icon {
@@ -2457,6 +3565,31 @@ const titleFor = (f: Finding) =>
 
 .ve-gutter__mark--success::before {
   display: none;
+}
+
+/* Proximity: the rail triggers are Codex small quiet buttons (24px), tinted when selected. */
+.ve-editor--proximity .ve-gutter__mark.cdx-button {
+  left: 10px;
+  margin-top: -2px;
+  /* Codex buttons clip overflow; the rail line and count sit outside the button. */
+  overflow: visible;
+}
+
+.ve-editor--proximity .ve-gutter__mark.cdx-button::before {
+  left: -11px;
+  top: 2px;
+}
+
+.ve-editor--proximity .ve-gutter__mark--selected.cdx-button {
+  background-color: var(--background-color-progressive-subtle, #f1f4fd);
+}
+
+.ve-editor--proximity .ve-gutter__mark--check.cdx-button .cdx-icon {
+  color: var(--color-warning, #886425);
+}
+
+.ve-editor--proximity .ve-gutter__mark--check.ve-gutter__mark--selected.cdx-button {
+  background-color: var(--background-color-warning-subtle, #fdf2d5);
 }
 
 .ve-gutter__count {
@@ -2521,12 +3654,26 @@ const titleFor = (f: Finding) =>
 
 .ve-sheet__header {
   display: flex;
-  align-items: center;
+  /* Icon and close button line up with the title's first line (26px), not the block's middle. */
+  align-items: flex-start;
   gap: 8px;
   min-height: 44px;
   margin: 0 -16px;
-  padding: 0 16px;
+  /* 9 + 26 + 8 + 1px border = 44px, the height of a one-line header. */
+  padding: 9px 16px 8px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border-color-muted, #eaecf0);
+}
+
+/* Proximity: the suggestion/check part of the sheet is tinted; the pager stays white. */
+.ve-sheet--proximity .ve-sheet__body {
+  margin: 0 -16px;
+  padding: 0 16px;
+  background-color: var(--background-color-progressive-subtle, #f1f4fd);
+}
+
+.ve-sheet--proximity.ve-sheet--check .ve-sheet__body {
+  background-color: var(--background-color-warning-subtle, #fdf2d5);
 }
 
 .ve-sheet__header .cdx-icon {
@@ -2546,7 +3693,7 @@ const titleFor = (f: Finding) =>
   color: var(--color-success, #14866d);
 }
 
-.ve-sheet__icon-btn .cdx-icon {
+.ve-sheet .ve-sheet__header .ve-sheet__icon-btn .cdx-icon {
   color: var(--color-base, #202122) !important;
 }
 
@@ -2557,7 +3704,9 @@ const titleFor = (f: Finding) =>
 }
 
 .ve-sheet__icon-btn {
+  display: inline-flex;
   margin-left: auto;
+  margin-block: -1px;
   border: none;
   background: transparent;
   padding: 4px;
@@ -2599,7 +3748,7 @@ const titleFor = (f: Finding) =>
 }
 
 .ve-sheet__body--dismiss {
-  animation: ve-dismiss-right 260ms ease forwards;
+  animation: ve-dismiss-right var(--transition-duration-medium, 250ms) var(--transition-timing-function-user, ease-out) forwards;
 }
 
 @keyframes ve-dismiss-right {
@@ -2645,5 +3794,18 @@ const titleFor = (f: Finding) =>
   font-size: var(--font-size-small, 14px);
   line-height: 20px;
   z-index: 220;
+}
+
+</style>
+
+<style>
+/* Vector suggestion toggle toast (teleported to body, so scoped via :has): no info icon, 14px text. */
+body:has(.ve-editor) .cdx-toast .cdx-message__icon--vue {
+  display: none;
+}
+
+/* Vector toasts: always 14px text. */
+.cdx-toast .cdx-message__content {
+  font-size: var(--font-size-small, 14px);
 }
 </style>

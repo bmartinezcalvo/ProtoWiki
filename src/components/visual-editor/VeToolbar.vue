@@ -6,7 +6,9 @@
  * Back · title · disabled Publish.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CdxIcon, CdxProgressIndicator, CdxToggleButton } from '@wikimedia/codex'
+import { CdxIcon, CdxPopover, CdxProgressIndicator, CdxToast, CdxToggleButton } from '@wikimedia/codex'
+
+import { suggestionSettings } from './settings'
 import {
   cdxIconAdd,
   cdxIconBold,
@@ -21,6 +23,7 @@ import {
   cdxIconHelp,
   cdxIconItalic,
   cdxIconLightbulb,
+  cdxIconLightbulbOutline,
   cdxIconLink,
   cdxIconListBullet,
   cdxIconMenu,
@@ -51,8 +54,16 @@ const props = withDefaults(
   review: boolean
     /** Editor still loading: progress bar (Vector) / "Loading editor…" (Minerva). */
     loading?: boolean
+    /**
+     * Suggestions discoverability loading messages, Minerva only:
+     * 1 "Loading editor…", 2 "Looking for suggestions…",
+     * 3 "N suggestions found", 4 fading out. 0 / unset: the default loading state.
+     */
+    loadingPhase?: number
+    /** Suggestions found, for phase 3. */
+    loadingFound?: number
   }>(),
-  { showSuggestionsToggle: true },
+  { showSuggestionsToggle: true, loadingPhase: 0, loadingFound: 0 },
 )
 
 const emit = defineEmits<{
@@ -63,16 +74,83 @@ const emit = defineEmits<{
   publish: []
   back: []
   textStyle: [command: string]
+  /** Minerva: show the "0 suggestions" empty state as a Minerva toast (rendered by the editor). */
+  emptyToast: []
 }>()
 
-const toggleModel = computed({
-  get: () => props.suggestionsOn,
-  set: (value: boolean) => emit('update:suggestionsOn', value),
+/** No suggestions: the toggle looks off (no badge, no rays) whether on or off. */
+const noSuggestions = computed(() => props.count === 0)
+/** "Empty button with 0 badge": with 0 suggestions the toggle still turns on / off. */
+const selectableEmpty = computed(() => noSuggestions.value && suggestionSettings.emptyState === 'selectable')
+/** What the toggle shows as pressed. */
+const toggleShownOn = computed(() => props.suggestionsOn && (!noSuggestions.value || selectableEmpty.value))
+/** On with 0 suggestions (selectable mode): subtle icon and a "0" badge. */
+const zeroOn = computed(() => selectableEmpty.value && props.suggestionsOn)
+
+/**
+ * All suggestions reviewed: the lightbulb swaps from filled to empty. `draining`
+ * briefly keeps the toggle in place before "Nothing" hides it.
+ */
+const draining = ref(false)
+const drainFilled = ref(false)
+let drainTimers: ReturnType<typeof setTimeout>[] = []
+watch(noSuggestions, (empty, wasEmpty) => {
+  if (props.loading || !empty || wasEmpty !== false) return
+  drainTimers.forEach(clearTimeout)
+  draining.value = true
+  drainFilled.value = true
+  // Straight swap from filled to empty (no bounce).
+  drainFilled.value = false
+  drainTimers = [setTimeout(() => (draining.value = false), 300)]
 })
+/** Filled bulb: there are suggestions, or the bounce hasn't reached the swap yet. */
+const bulbFilled = computed(() => !noSuggestions.value || drainFilled.value)
+
+/** "Empty state in ToggleButton" → Nothing: no toggle with 0 suggestions (it leaves after the drain). */
+const toggleVisible = computed(
+  () =>
+    props.showSuggestionsToggle &&
+    !(suggestionSettings.emptyState === 'nothing' && noSuggestions.value && !draining.value),
+)
+
+/** "0 suggestions" popover, shown when turning suggestions on with none to show. */
+const emptyPopoverOpen = ref(false)
+const toggleRef = ref<InstanceType<typeof CdxToggleButton> | null>(null)
+
+/** Empty state as a toast instead ("Empty state when 0 suggestions" in Mock settings). */
+const emptyToastKey = ref(0)
+const emptyToastOpen = ref(false)
+
+let emptyPopoverTimer: ReturnType<typeof setTimeout> | null = null
+watch(emptyPopoverOpen, (open) => {
+  if (emptyPopoverTimer) clearTimeout(emptyPopoverTimer)
+  // Hides itself after 4 seconds.
+  if (open) emptyPopoverTimer = setTimeout(() => (emptyPopoverOpen.value = false), 4000)
+})
+
+function onToggle() {
+  // No suggestions: nothing to turn on or off, the click only shows the empty state
+  // (except "Empty button with 0 badge", which toggles as usual, silently).
+  if (noSuggestions.value && !selectableEmpty.value) {
+    if (suggestionSettings.emptyState === 'toast') {
+      if (props.skin === 'mobile') {
+        emit('emptyToast')
+        return
+      }
+      emptyToastKey.value++
+      emptyToastOpen.value = true
+      return
+    }
+    emptyPopoverOpen.value = !emptyPopoverOpen.value
+    return
+  }
+  emptyPopoverOpen.value = false
+  emit('update:suggestionsOn', !props.suggestionsOn)
+}
 
 /** editcheck-toolbar-suggestions-count: {{PLURAL:$1|$1|100=99+}} */
 const badgeLabel = computed(() => (props.count >= 100 ? '99+' : String(props.count)))
-const showBadge = computed(() => props.count > 0 || props.suggestionsOn)
+const showBadge = computed(() => props.count > 0 || zeroOn.value)
 
 /**
  * Desktop loading bar (`ve.init.mw.ProgressBarWidget`): fills 30% → 70% → 100%
@@ -107,6 +185,12 @@ watch(
   },
   { immediate: true },
 )
+
+const loadingMessage = computed(() => {
+  // Only "Loading editor…" and "Looking for suggestions…" (no found count).
+  if (props.loadingPhase === 1) return 'Loading editor…'
+  return 'Looking for suggestions…'
+})
 
 const scrolled = ref(false)
 function onScroll() {
@@ -184,8 +268,35 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- Loading -->
-  <div v-if="loading && skin === 'desktop'" class="ve-toolbar ve-toolbar--loading" data-skin="desktop">
+  <!-- Loading: discoverability messages ("Loading editor…" → "Looking for suggestions…" → "N found") -->
+  <div
+    v-if="loading && loadingPhase > 0 && skin === 'mobile'"
+    class="ve-toolbar ve-toolbar--loading ve-toolbar--phased ve-toolbar--slide-in"
+    data-skin="mobile"
+  >
+    <button
+      class="ve-toolbar__btn ve-toolbar__btn--fixed ve-toolbar__btn--close"
+      aria-label="Close"
+      @click="emit('close')"
+    >
+      <CdxIcon :icon="cdxIconClose" />
+    </button>
+    <div
+      class="ve-toolbar__loading-label"
+      :class="{ 've-toolbar__loading-label--fading': loadingPhase >= 4 }"
+      aria-live="polite"
+    >
+      <span class="ve-toolbar__loading-icon">
+        <CdxProgressIndicator class="ve-toolbar__spinner" aria-hidden="true" />
+      </span>
+      <span class="ve-toolbar__loading-text">
+        <Transition name="ve-loading-msg">
+          <span :key="Math.min(loadingPhase, 2)" class="ve-toolbar__loading-message">{{ loadingMessage }}</span>
+        </Transition>
+      </span>
+    </div>
+  </div>
+  <div v-else-if="loading && skin === 'desktop'" class="ve-toolbar ve-toolbar--loading" data-skin="desktop">
     <div class="ve-progress" role="progressbar" aria-label="Loading editor" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
       <div class="ve-progress__bar" :style="{ width: `${progress}%`, transitionDuration: `${progressDuration}ms` }" />
     </div>
@@ -263,23 +374,33 @@ onBeforeUnmount(() => {
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Help">
         <CdxIcon :icon="cdxIconHelp" />
       </button>
+      <Transition name="ve-toggle-out">
       <CdxToggleButton
-        v-if="showSuggestionsToggle"
-        v-model="toggleModel"
+        v-if="toggleVisible"
+        :model-value="toggleShownOn"
         quiet
         class="ve-toolbar__suggestions"
-        :class="{ 've-toolbar__suggestions--on': suggestionsOn }"
+        :class="{
+          've-toolbar__suggestions--on': toggleShownOn,
+          've-toolbar__suggestions--zero': zeroOn,
+          've-toolbar__suggestions--selectable-empty': selectableEmpty,
+        }"
+        ref="toggleRef"
+        @update:model-value="onToggle"
         :aria-label="STR.toggleSuggestions"
         :title="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="suggestionsOn" class="ve-bulb__rays" aria-hidden="true">
-            <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
-          </span>
-          <CdxIcon :icon="cdxIconLightbulb" />
+          <span
+            class="ve-bulb__rays"
+            :class="{ 've-bulb__rays--on': toggleShownOn && (!noSuggestions || zeroOn) }"
+            aria-hidden="true"
+          />
+          <CdxIcon :icon="bulbFilled ? cdxIconLightbulb : cdxIconLightbulbOutline" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
       </CdxToggleButton>
+      </Transition>
       <button class="ve-toolbar__btn ve-toolbar__btn--icon" aria-label="Page options">
         <CdxIcon :icon="cdxIconMenu" />
       </button>
@@ -374,22 +495,33 @@ onBeforeUnmount(() => {
           </template>
         </div>
       </div>
+      <Transition name="ve-toggle-out">
       <CdxToggleButton
-        v-if="showSuggestionsToggle"
-        v-model="toggleModel"
+        v-if="toggleVisible"
+        :model-value="toggleShownOn"
         quiet
         class="ve-toolbar__suggestions ve-toolbar__btn--fill"
-        :class="{ 've-toolbar__suggestions--on': suggestionsOn }"
+        :class="{
+          've-toolbar__suggestions--on': toggleShownOn,
+          've-toolbar__suggestions--zero': zeroOn,
+          've-toolbar__suggestions--selectable-empty': selectableEmpty,
+          've-toolbar__suggestions--empty': noSuggestions && !selectableEmpty,
+        }"
+        ref="toggleRef"
+        @update:model-value="onToggle"
         :aria-label="STR.toggleSuggestions"
       >
         <span class="ve-bulb">
-          <span v-if="suggestionsOn" class="ve-bulb__rays" aria-hidden="true">
-            <span v-for="n in 5" :key="n" class="ve-bulb__ray" :class="`ve-bulb__ray--${n}`" />
-          </span>
-          <CdxIcon :icon="cdxIconLightbulb" />
+          <span
+            class="ve-bulb__rays"
+            :class="{ 've-bulb__rays--on': toggleShownOn && (!noSuggestions || zeroOn) }"
+            aria-hidden="true"
+          />
+          <CdxIcon :icon="bulbFilled ? cdxIconLightbulb : cdxIconLightbulbOutline" />
           <span v-if="showBadge" class="ve-bulb__badge">{{ badgeLabel }}</span>
         </span>
       </CdxToggleButton>
+      </Transition>
       <div class="ve-toolbar__menu-wrap ve-toolbar__btn--fill">
         <button
           class="ve-toolbar__btn ve-toolbar__menu-trigger"
@@ -421,6 +553,25 @@ onBeforeUnmount(() => {
       <CdxIcon :icon="cdxIconCheck" />
     </button>
   </div>
+  <CdxPopover
+    v-model:open="emptyPopoverOpen"
+    class="ve-toolbar__empty-popover"
+    :anchor="toggleRef"
+    placement="bottom"
+    :use-bottom-sheet="false"
+  >
+    There are no suggestions to improve this article for now.
+  </CdxPopover>
+  <CdxToast
+    v-if="emptyToastOpen"
+    :key="emptyToastKey"
+    type="notice"
+    :auto-dismiss="4000"
+    prevent-user-dismiss
+    @auto-dismissed="emptyToastOpen = false"
+  >
+    There are no suggestions to improve this article for now.
+  </CdxToast>
 </template>
 
 <style scoped>
@@ -595,6 +746,133 @@ onBeforeUnmount(() => {
   min-width: 20px;
 }
 
+/* Discoverability loading messages (Minerva) */
+.ve-toolbar--phased {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.ve-toolbar--phased .ve-toolbar__loading-label {
+  flex: 1;
+  min-width: 0;
+  transition: opacity 300ms ease;
+}
+
+.ve-toolbar__loading-label--fading {
+  opacity: 0;
+}
+
+.ve-toolbar__loading-icon {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.ve-toolbar__loading-icon > * {
+  position: absolute;
+  inset: 0;
+}
+
+.ve-toolbar__loading-bulb {
+  color: var(--color-progressive, #36c);
+}
+
+.ve-toolbar__loading-bulb--empty {
+  color: var(--color-placeholder, #72777d);
+}
+
+.ve-toolbar__loading-text {
+  position: relative;
+  flex: 1;
+  height: 1.4em;
+  overflow: hidden;
+}
+
+.ve-toolbar__loading-message {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.ve-toolbar__loading-count {
+  color: var(--color-progressive, #36c);
+  font-weight: var(--font-weight-bold, 700);
+}
+
+.ve-loading-msg-enter-active {
+  animation: ve-loading-msg-in 300ms ease-out both;
+}
+
+.ve-loading-msg-leave-active {
+  animation: ve-loading-msg-out 250ms ease-in both;
+}
+
+@keyframes ve-loading-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-50% + 12px));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes ve-loading-msg-out {
+  from {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(calc(-50% - 12px));
+  }
+}
+
+.ve-loading-icon-enter-active {
+  animation: ve-loading-icon-in 400ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.ve-loading-icon-leave-active {
+  animation: ve-loading-icon-out 250ms ease-in both;
+}
+
+@keyframes ve-loading-icon-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ve-loading-icon-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ve-loading-msg-enter-active,
+  .ve-loading-msg-leave-active,
+  .ve-loading-icon-enter-active,
+  .ve-loading-icon-leave-active {
+    animation: none;
+  }
+
+  .ve-toolbar--phased .ve-toolbar__loading-label {
+    transition: none;
+  }
+}
+
 /* Review (Before publishing) */
 .ve-toolbar--review {
   flex-wrap: nowrap;
@@ -665,56 +943,30 @@ onBeforeUnmount(() => {
   height: 20px;
 }
 
+/* Rays: same element as production VisualEditor (Edit Check `lightbulb-rays.svg`, 26×32,
+   centred over the 20px icon in a 26×32 box; grows from 50% and fades in over 250ms). Used as a mask so
+   the colour can follow the state. */
 .ve-bulb__rays {
   position: absolute;
-  inset: 0;
+  top: -6px;
+  bottom: -6px;
+  left: -3px;
+  right: -3px;
   pointer-events: none;
-}
-
-.ve-bulb__ray {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 2px;
-  height: 3px;
   background-color: var(--color-progressive, #36c);
-  border-radius: 0.5px;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='32' viewBox='0 0 26 32'%3E%3Cpath d='m12 0v3h2v-3h-2zm-7.4844 3.0996-1.416 1.416 2.123 2.1211 1.4141-1.4141-2.1211-2.123zm16.969 0-2.1211 2.123 1.4141 1.4141 2.123-2.1211-1.416-1.416zm-21.484 8.9004v2h3v-2h-3zm23 0v2h3v-2h-3z'/%3E%3C/svg%3E")
+    50% 50% / 50% auto no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='32' viewBox='0 0 26 32'%3E%3Cpath d='m12 0v3h2v-3h-2zm-7.4844 3.0996-1.416 1.416 2.123 2.1211 1.4141-1.4141-2.1211-2.123zm16.969 0-2.1211 2.123 1.4141 1.4141 2.123-2.1211-1.416-1.416zm-21.484 8.9004v2h3v-2h-3zm23 0v2h3v-2h-3z'/%3E%3C/svg%3E")
+    50% 50% / 50% auto no-repeat;
   opacity: 0;
-  animation: ve-ray-in 0.3s ease-out forwards;
+  transition-property: -webkit-mask-size, mask-size, opacity;
+  transition-duration: var(--transition-duration-medium, 250ms);
 }
 
-.ve-bulb__ray--1 {
-  transform: translate(-50%, -50%) rotate(-60deg) translateY(-13px);
-}
-.ve-bulb__ray--2 {
-  transform: translate(-50%, -50%) rotate(-30deg) translateY(-12.5px);
-  animation-delay: 0.05s;
-}
-.ve-bulb__ray--3 {
-  transform: translate(-50%, -50%) rotate(0deg) translateY(-12px);
-  animation-delay: 0.1s;
-}
-.ve-bulb__ray--4 {
-  transform: translate(-50%, -50%) rotate(30deg) translateY(-12.5px);
-  animation-delay: 0.15s;
-}
-.ve-bulb__ray--5 {
-  transform: translate(-50%, -50%) rotate(60deg) translateY(-13px);
-  animation-delay: 0.2s;
-}
-
-@keyframes ve-ray-in {
-  0% {
-    opacity: 0;
-    height: 2px;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 1;
-    height: 3px;
-  }
+.ve-bulb__rays--on {
+  -webkit-mask-size: 100% auto;
+  mask-size: 100% auto;
+  opacity: 1;
 }
 
 .ve-bulb__badge {
@@ -744,6 +996,61 @@ onBeforeUnmount(() => {
   background: var(--background-color-progressive-subtle, #e8eeff);
   color: var(--color-progressive, #36c);
   border-color: var(--border-color-progressive, #36c);
+}
+
+/* "Empty state in ToggleButton" → Nothing: the toggle shrinks away once empty. */
+.ve-toggle-out-leave-active {
+  overflow: hidden;
+  animation: ve-toggle-out 320ms ease-in forwards;
+}
+
+@keyframes ve-toggle-out {
+  from {
+    opacity: 1;
+    max-width: 48px;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    max-width: 0;
+    min-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    transform: scale(0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ve-toggle-out-leave-active {
+    animation-duration: 1ms;
+  }
+}
+
+/* "Empty button with 0 badge" with 0 suggestions, on: no fill, outline bulb with rays,
+   icon, rays and "0" badge in the base colour with a black badge border. */
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled {
+  background-color: transparent;
+}
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:hover {
+  background-color: var(--background-color-interactive-subtle--hover, #eaecf0);
+}
+.ve-toolbar .cdx-toggle-button.ve-toolbar__suggestions--zero:enabled:active {
+  background-color: var(--background-color-interactive-subtle--active, #dadde3);
+}
+
+.ve-toolbar__suggestions--zero .cdx-icon {
+  color: var(--color-base, #202122);
+  animation: none;
+}
+
+.ve-toolbar__suggestions--zero .ve-bulb__rays {
+  background-color: var(--color-base, #202122);
+}
+
+.ve-toolbar__suggestions.ve-toolbar__suggestions--zero .ve-bulb__badge {
+  background: var(--background-color-base, #fff);
+  color: var(--color-base, #202122);
+  border-color: #000;
 }
 
 /* Minerva */
@@ -810,6 +1117,15 @@ onBeforeUnmount(() => {
 .ve-toolbar[data-skin='mobile'] .ve-toolbar__suggestions {
   height: 48px;
   width: auto;
+}
+
+/* Minerva, 0 suggestions: the tap only opens the popover, no grey pressed / hover background. */
+.ve-toolbar[data-skin='mobile'] .cdx-toggle-button.ve-toolbar__suggestions--empty:enabled:hover,
+.ve-toolbar[data-skin='mobile'] .cdx-toggle-button.ve-toolbar__suggestions--empty:enabled:active,
+.ve-toolbar[data-skin='mobile'] .cdx-toggle-button.ve-toolbar__suggestions--empty:enabled:focus {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .ve-toolbar[data-skin='mobile'] .ve-bulb__badge {
@@ -891,5 +1207,19 @@ onBeforeUnmount(() => {
   height: 1px;
   margin: 4px 0;
   background: var(--border-color-subtle, #c8ccd1);
+}
+</style>
+
+<style>
+/* "0 suggestions" popover (teleported to body): narrow, like the design. */
+.cdx-popover.ve-toolbar__empty-popover {
+  width: var(--size-1600, 256px);
+}
+
+/* Arrow joins the box seamlessly: extend it past its diagonal, over the box border. */
+.cdx-popover.ve-toolbar__empty-popover .cdx-popover__arrow {
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  clip-path: polygon(0 0, 100% 0, 100% 3px, 3px 100%, 0 100%);
 }
 </style>

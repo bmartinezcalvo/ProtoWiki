@@ -17,16 +17,56 @@ export interface SuggestionSettings {
   limit: number | null
   types: Record<SuggestionTypeId, boolean>
   /**
-   * First time in Suggestion Mode (`firstTime` true): production starts the desktop
-   * toggle off until the editor turns it on once. Exposed as “First time using
-   * Suggestion Mode” in Suggestion mode settings. Mobile always starts with suggestions visible.
+   * First time in Suggestion Mode. Exposed as “First time using suggestion mode”
+   * in Suggestion mode settings. Suggestions start on regardless (desktop and mobile).
    */
   firstTime: boolean
   /** Desktop toggle state remembered from the last session (production user option). */
   rememberedToggle: boolean
+  /** "Don't show this again" ticked in "Before you go" (discoverability). */
+  hideBeforeYouGo: boolean
+  /**
+   * Discoverability experiment. `1`: lightbulb badge on the read-mode Edit
+   * buttons. `2`: no read-mode badge.
+   */
+  experiment: 1 | 2
+  /**
+   * Unselected highlighted text. `railHighlight`: grey background plus the rail
+   * (the blue / yellow line beside it). `rail`: transparent background, rail only.
+   */
+  highlightStyle: 'railHighlight' | 'rail'
+  /**
+   * Suggestion icons: `lightbulb` for every suggestion, `contextual` icons per category (V1), or
+   * `contextualBadge` (V2): the lightbulb with the contextual icon as an x-small badge bottom right.
+   */
+  suggestionIcons: 'lightbulb' | 'contextual' | 'contextualBadge'
+  /** "Show stacked suggestions": at least one paragraph has more than one suggestion. */
+  showStacked: boolean
+  /**
+   * "Empty state in ToggleButton" (0 suggestions): popover under the toggle, a toast,
+   * `selectable` (the toggle turns on / off and shows a "0" badge), or `nothing` (toggle hidden).
+   */
+  emptyState: 'popover' | 'toast' | 'selectable' | 'nothing'
+  /** "Empty state when completed/declined all suggestions": nothing, the "No more suggestions" card, or a toast. */
+  allReviewedState: 'nothing' | 'card' | 'toast'
+  /**
+   * Minerva — "Prominence between highlighted text and bottom sheet": `nothing` (as is) or
+   * `overlay` (a light backdrop covers everything but the selected block, the highlight wipes in),
+   * `proximityOnly` ("No highlighted text when unselected": the selected text sits 32px above the
+   * sheet, unselected suggestions have no highlight, unselected checks a faint one, one-line
+   * highlights wipe in), or `proximity` ("Colored bottom sheet": selected text 40px above a sheet
+   * tinted by suggestion/check, small quiet rail buttons, line-by-line wipe).
+   */
+  sheetProminence: 'nothing' | 'overlay' | 'proximity' | 'proximityOnly'
+  /**
+   * Desktop — "No highlighted text when unselected" (Improve distinction between states):
+   * unselected suggestions have no highlight, unselected checks a faint warning one, and
+   * one-line highlights wipe in when selected.
+   */
+  desktopNoHighlight: boolean
 }
 
-const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v1'
+const STORAGE_KEY = 'protowiki:template-visual-editor:settings:v2'
 
 function defaults(): SuggestionSettings {
   return {
@@ -36,8 +76,17 @@ function defaults(): SuggestionSettings {
       SuggestionTypeId,
       boolean
     >,
-    firstTime: false,
+    firstTime: true,
     rememberedToggle: true,
+    hideBeforeYouGo: false,
+    experiment: 1,
+    highlightStyle: 'railHighlight',
+    suggestionIcons: 'lightbulb',
+    showStacked: false,
+    emptyState: 'selectable',
+    allReviewedState: 'nothing',
+    sheetProminence: 'proximityOnly',
+    desktopNoHighlight: true,
   }
 }
 
@@ -61,7 +110,11 @@ function load(): SuggestionSettings {
     return {
       ...base,
       ...rest,
+      // The master switch is no longer exposed in the settings; always on.
+      enabled: true,
       types: { ...base.types, ...(rest?.types ?? {}) },
+      // Renamed option ("Gradient behind bottom sheet" → "Proximity").
+      sheetProminence: rest?.sheetProminence === 'gradient' ? 'proximity' : (rest?.sheetProminence ?? base.sheetProminence),
     }
   } catch {
     return base
