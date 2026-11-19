@@ -3073,12 +3073,12 @@ const titleFor = (f: Finding) =>
   background-color: var(--border-color-warning, #987027);
 }
 
-/* Desktop "No highlighted text when unselected": thinner rail when unselected (1.5px / 2.5px). */
+/* Desktop "No highlighted text when unselected": thinner rail when unselected (1.5px / 2px). */
 .ve-editor--quiet .ve-hl-bar {
   width: 1.5px;
 }
 .ve-editor--quiet .ve-hl-bar--selected {
-  width: 2.5px;
+  width: 2px;
 }
 
 .ve-hl-bar--success {
@@ -3549,11 +3549,6 @@ const titleFor = (f: Finding) =>
 
 .ve-gutter__mark--selected::before {
   width: 2px;
-}
-
-/* "No highlighted text when unselected": 1.5px rail, 2.5px for the selected suggestion/check. */
-.ve-editor--quiet .ve-gutter__mark--selected::before {
-  width: 2.5px;
 }
 
 .ve-gutter__mark .cdx-icon {
