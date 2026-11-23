@@ -84,7 +84,7 @@ function defaults(): SuggestionSettings {
     experiment: 1,
     highlightStyle: 'railHighlight',
     suggestionIcons: 'lightbulb',
-    lightbulbIndicator: false,
+    lightbulbIndicator: true,
     showStacked: false,
     emptyState: 'selectable',
     allReviewedState: 'nothing',
