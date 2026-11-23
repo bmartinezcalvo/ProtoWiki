@@ -167,6 +167,14 @@ const editedPagesText = computed({
             <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="contextual">
               Contextual icons V1
             </CdxRadio>
+            <div v-if="suggestionSettings.suggestionIcons === 'contextual'" class="user-settings-panel__nested">
+              <CdxRadio v-model="suggestionSettings.lightbulbIndicator" name="lightbulb-indicator" :input-value="false">
+                Without lightbulb indicator
+              </CdxRadio>
+              <CdxRadio v-model="suggestionSettings.lightbulbIndicator" name="lightbulb-indicator" :input-value="true">
+                With lightbulb indicator
+              </CdxRadio>
+            </div>
             <CdxRadio v-model="suggestionSettings.suggestionIcons" name="suggestion-icons" input-value="contextualBadge">
               Contextual icons V2
             </CdxRadio>
@@ -240,6 +248,10 @@ const editedPagesText = computed({
 
 .user-settings-panel__tabs :deep(.cdx-tabs__content) {
   padding-top: var(--spacing-100);
+}
+
+.user-settings-panel__nested {
+  padding-inline-start: 28px;
 }
 
 .user-settings-panel__wiki-field {

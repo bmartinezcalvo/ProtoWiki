@@ -40,6 +40,8 @@ export interface SuggestionSettings {
    * `contextualBadge` (V2): the lightbulb with the contextual icon as an x-small badge bottom right.
    */
   suggestionIcons: 'lightbulb' | 'contextual' | 'contextualBadge'
+  /** Contextual icons V1 — "With lightbulb indicator": an x-small lightbulb before the open suggestion's description. */
+  lightbulbIndicator: boolean
   /** "Show stacked suggestions": at least one paragraph has more than one suggestion. */
   showStacked: boolean
   /**
@@ -82,6 +84,7 @@ function defaults(): SuggestionSettings {
     experiment: 1,
     highlightStyle: 'railHighlight',
     suggestionIcons: 'lightbulb',
+    lightbulbIndicator: false,
     showStacked: false,
     emptyState: 'selectable',
     allReviewedState: 'nothing',

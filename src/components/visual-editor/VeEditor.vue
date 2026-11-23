@@ -309,6 +309,11 @@ function computeStackExtra() {
   stackExtra.value = extra
 }
 
+/** Every finding, including the extra "Show stacked suggestions" one. */
+function allFindings(): Finding[] {
+  return [...suggestions.value, ...(stackExtra.value && suggestionSettings.showStacked ? [stackExtra.value] : []), ...checks.value]
+}
+
 const pendingSuggestions = computed(() =>
   filteredSuggestions.value.filter((f) => status.get(f.id) === 'pending' && isLive(f) && inScope(f)),
 )
@@ -336,7 +341,7 @@ function byPosition(a: Finding, b: Finding): number {
 /** What the sidebar / sheet lists (pending items plus transient success cards). */
 const displayed = computed<Finding[]>(() => {
   if (review.value) return review.value.items.filter((f) => status.get(f.id) !== 'done' || successIds.has(f.id))
-  const transient = [...suggestions.value, ...checks.value].filter(
+  const transient = allFindings().filter(
     (f) =>
       ((successIds.has(f.id) || publishPathId.value === f.id) && status.get(f.id) === 'done') ||
       (!isMobile.value && allReviewedId.value === f.id),
@@ -345,8 +350,31 @@ const displayed = computed<Finding[]>(() => {
   const visibleSuggestions = suggestionsOn.value
     ? pendingSuggestions.value.filter((f) => !overlapsCheck(f))
     : []
-  return [...pendingChecks.value, ...visibleSuggestions, ...(suggestionsOn.value ? transient : transient.filter((f) => f.mode === 'check'))].sort(byPosition)
+  const list = [...pendingChecks.value, ...visibleSuggestions, ...(suggestionsOn.value ? transient : transient.filter((f) => f.mode === 'check'))].sort(byPosition)
+  return isMobile.value ? longestFirstInStacks(list) : list
 })
+
+/** Length of a finding's highlighted text. */
+function highlightLength(f: Finding): number {
+  if (f.ranges?.length) return f.ranges.reduce((n, r) => n + r.toString().length, 0)
+  return f.element?.textContent?.length ?? 0
+}
+
+/**
+ * Minerva stacks: suggestions in the same paragraph share one rail icon. Within a
+ * paragraph the one with the most highlighted text comes first (it opens first and
+ * leads the pager); the paragraph keeps its place in the document order.
+ */
+function longestFirstInStacks(list: Finding[]): Finding[] {
+  const groups: { block: Element | null; items: Finding[] }[] = []
+  for (const f of list) {
+    const block = blockOf(f.element ?? f.ranges[0]?.startContainer ?? null)
+    const group = block ? groups.find((g) => g.block === block) : null
+    if (group) group.items.push(f)
+    else groups.push({ block, items: [f] })
+  }
+  return groups.flatMap((g) => (g.items.length > 1 ? [...g.items].sort((a, b) => highlightLength(b) - highlightLength(a)) : g.items))
+}
 
 const pendingDisplayed = computed(() => displayed.value.filter((f) => status.get(f.id) === 'pending'))
 
@@ -1339,7 +1367,7 @@ onBeforeUnmount(() => sheetObserver?.disconnect())
 const rollDirection = ref<'next' | 'prev' | null>(null)
 
 const sheetFinding = computed(() =>
-  [...suggestions.value, ...checks.value].find((f) => f.id === (sheetMode.value === 'publishPath' ? publishPathId.value : focusedId.value)) ?? null,
+  allFindings().find((f) => f.id === (sheetMode.value === 'publishPath' ? publishPathId.value : focusedId.value)) ?? null,
 )
 
 function openSheet(f: Finding) {
@@ -1392,7 +1420,7 @@ function goTo(delta: 1 | -1) {
 
 /** Publish-path card "View more": go to the adjacent action. */
 function viewMore() {
-  const current = [...suggestions.value, ...checks.value].find((f) => f.id === publishPathId.value)
+  const current = allFindings().find((f) => f.id === publishPathId.value)
   publishPathId.value = null
   sheetMode.value = 'finding'
   const items = pendingDisplayed.value
@@ -1448,6 +1476,30 @@ const gutterMarks = computed(() => {
   }
   return marks
 })
+
+/**
+ * The suggestion a rail icon stands for: the open one when it belongs to this mark,
+ * otherwise the first (longest) one — so a stacked icon matches the open sheet.
+ */
+function markLead(mark: { ids: string[] }): Finding | null {
+  const id = sheetOpen.value && focusedId.value && mark.ids.includes(focusedId.value) ? focusedId.value : mark.ids[0]
+  return displayed.value.find((d) => d.id === id) ?? null
+}
+/** Rail icon: alert for checks, else the lead suggestion's icon (a mixed stack follows the open finding). */
+function markIcon(mark: { ids: string[]; type: string; state: string; experimental: boolean }) {
+  const lead = markLead(mark)
+  const open = !!lead && sheetOpen.value && lead.id === focusedId.value
+  const isCheck = open ? lead!.mode === 'check' : mark.state === 'check'
+  if (isCheck) return cdxIconAlert
+  return lead ? suggestionIcon(lead.type, !!lead.experimental) : suggestionIcon(mark.type, mark.experimental)
+}
+/** "Contextual icons V2" badge for a rail icon (follows the open finding, like the icon). */
+function markBadge(mark: { ids: string[]; type: string; state: string }) {
+  // Stacked marks show the count badge in that corner instead.
+  if (mark.ids.length > 1 || mark.state === 'success' || markIcon(mark) === cdxIconAlert) return null
+  const lead = markLead(mark)
+  return lead ? badgeIcon(lead.type, lead.mode) : badgeIcon(mark.type, mark.state)
+}
 
 function openMark(ids: string[]) {
   const f = displayed.value.find((d) => d.id === ids[0])
@@ -2021,6 +2073,10 @@ function badgeIcon(type: string, mode: string) {
   return contextualIcon(type) ?? null
 }
 
+/** "Contextual icons V1 → With lightbulb indicator" (suggestions only). */
+const showIndicator = (f: Finding) =>
+  f.mode !== 'check' && suggestionSettings.suggestionIcons === 'contextual' && suggestionSettings.lightbulbIndicator
+
 const subheadingFor = (f: Finding) =>
   f.experimental ? (f.mode === 'check' ? 'Experimental edit check for testing' : 'Experimental suggestion for testing') : null
 
@@ -2162,14 +2218,14 @@ const titleFor = (f: Finding) =>
             </svg>
             <CdxIcon
               v-else
-              :icon="mark.state === 'check' ? cdxIconAlert : suggestionIcon(mark.type, mark.experimental)"
+              :icon="markIcon(mark)"
               :size="proximityStyled ? 'small' : 'medium'"
             />
             <CdxIcon
-              v-if="mark.state !== 'success' && mark.ids.length === 1 && badgeIcon(mark.type, mark.state)"
+              v-if="markBadge(mark)"
               class="ve-icon-badge"
               size="x-small"
-              :icon="badgeIcon(mark.type, mark.state)!"
+              :icon="markBadge(mark)!"
             />
             <span v-if="mark.ids.length > 1 && mark.state !== 'success'" class="ve-gutter__count">{{ mark.ids.length }}</span>
           </component>
@@ -2320,7 +2376,7 @@ const titleFor = (f: Finding) =>
                 </span>
               </button>
               <div v-if="focusedId === f.id || review" class="ve-card__content">
-                <FindingBody :finding="f" skin="desktop" :busy="busyId === f.id" @act="(a, r) => act(f, a, r)" />
+                <FindingBody :finding="f" skin="desktop" :indicator="showIndicator(f)" :busy="busyId === f.id" @act="(a, r) => act(f, a, r)" />
               </div>
             </template>
           </div>
@@ -2444,6 +2500,7 @@ const titleFor = (f: Finding) =>
             class="ve-sheet__finding"
             :finding="(review ? currentReview : sheetFinding)!"
             skin="mobile"
+            :indicator="showIndicator((review ? currentReview : sheetFinding)!)"
             :busy="busyId === (review ? currentReview : sheetFinding)!.id"
             @act="(a, r) => act((review ? currentReview : sheetFinding)!, a, r)"
           />
