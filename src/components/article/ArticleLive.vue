@@ -281,11 +281,15 @@ async function refreshPrefetchSuggestionCount() {
     prefetchSuggestionSections.value = new Set()
     return
   }
-  const { count, sections } = await countArticleSuggestions(
-    liveHtml.value,
-    vePage.value,
-    editCount.value,
-  )
+  const html = liveHtml.value
+  const stale = () => liveHtml.value !== html
+  const { count, sections } = await countArticleSuggestions(html, vePage.value, editCount.value, (quick) => {
+    // Show the read-mode indicator right away; the full count follows.
+    if (stale()) return
+    prefetchSuggestionCount.value = quick.count
+    prefetchSuggestionSections.value = quick.sections
+  })
+  if (stale()) return
   prefetchSuggestionCount.value = count
   prefetchSuggestionSections.value = sections
 }

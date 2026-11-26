@@ -74,11 +74,12 @@ function defaults(): SuggestionSettings {
   return {
     enabled: true,
     limit: null,
-    types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, true])) as Record<
+    // Experimental suggestion types are off by default.
+    types: Object.fromEntries(SUGGESTION_TYPES.map((t) => [t.id, !t.label.includes('(experimental)')])) as Record<
       SuggestionTypeId,
       boolean
     >,
-    firstTime: true,
+    firstTime: false,
     rememberedToggle: true,
     hideBeforeYouGo: false,
     experiment: 1,
@@ -115,6 +116,8 @@ function load(): SuggestionSettings {
       ...rest,
       // The master switch is no longer exposed in the settings; always on.
       enabled: true,
+      // "Empty state in ToggleButton" is no longer exposed; always the empty button with a 0 badge.
+      emptyState: 'selectable',
       types: { ...base.types, ...(rest?.types ?? {}) },
       // Renamed option ("Gradient behind bottom sheet" → "Proximity").
       sheetProminence: rest?.sheetProminence === 'gradient' ? 'proximity' : (rest?.sheetProminence ?? base.sheetProminence),

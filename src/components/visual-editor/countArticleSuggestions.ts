@@ -14,20 +14,37 @@ export interface ArticleSuggestionCount {
   sections: Set<string>
 }
 
-/** Count enabled suggestions for settings-panel shortfall and read-mode indicators (load-time only). */
+/**
+ * Count enabled suggestions for settings-panel shortfall and read-mode indicators (load-time only).
+ * `onQuick` gets a first count from the fast, offline detectors so the read-mode indicator can
+ * show as soon as the article loads; the returned count adds the slower API-based ones.
+ */
 export async function countArticleSuggestions(
   html: string,
   page: VisualEditorPage,
   editCount: number,
+  onQuick?: (result: ArticleSuggestionCount) => void,
 ): Promise<ArticleSuggestionCount> {
-  const sections = new Set<string>()
-  if (!suggestionSettings.enabled) return { count: 0, sections }
-  const root = parseArticleHtml(html).querySelector('.mw-parser-output')
-  if (!root) return { count: 0, sections }
+  if (!suggestionSettings.enabled) return { count: 0, sections: new Set() }
   const options = {
     experiencedEditor: editorIsExperienced(editCount),
     atLeast25Edits: editorHasAtLeast25Edits(editCount),
   }
+  if (onQuick) {
+    const quick = await countWith(html, page, { ...options, syncOnly: true })
+    if (quick.count > 0) onQuick(quick)
+  }
+  return countWith(html, page, options)
+}
+
+async function countWith(
+  html: string,
+  page: VisualEditorPage,
+  options: Parameters<typeof detectSuggestions>[2],
+): Promise<ArticleSuggestionCount> {
+  const sections = new Set<string>()
+  const root = parseArticleHtml(html).querySelector('.mw-parser-output')
+  if (!root) return { count: 0, sections }
   // Same filtering as the editor (enabled types + "number of suggestions" limit),
   // so read mode and edit mode agree on the count.
   const list = applySuggestionSettings(await detectSuggestions(root, page, options))
