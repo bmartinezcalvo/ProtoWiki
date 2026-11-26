@@ -6,7 +6,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { CdxButton, CdxIcon, CdxRadio } from '@wikimedia/codex'
-import { cdxIconCheck, cdxIconPrevious, cdxIconRobot, cdxIconUserAvatar } from '@wikimedia/codex-icons'
+import { cdxIconCheck, cdxIconLightbulb, cdxIconPrevious, cdxIconRobot, cdxIconUserAvatar } from '@wikimedia/codex-icons'
 
 import type { ChoiceAction, Finding } from './engine/checks'
 import { feedbackFormFor } from './engine/editChecks'
@@ -17,6 +17,8 @@ const props = defineProps<{
   /** Recheck in flight (tone). */
   busy?: boolean
   skin: 'desktop' | 'mobile'
+  /** "Contextual icons V1 → With lightbulb indicator": an x-small lightbulb before the description. */
+  indicator?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -92,8 +94,13 @@ const footerIcon = computed(() =>
     </template>
 
     <template v-else>
+      <div v-if="indicator" class="finding-body__description">
+        <span class="finding-body__indicator"><CdxIcon :icon="cdxIconLightbulb" size="x-small" /></span>
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <div v-html="finding.descriptionHtml" />
+      </div>
       <!-- eslint-disable-next-line vue/no-v-html -->
-      <div class="finding-body__description" v-html="finding.descriptionHtml" />
+      <div v-else class="finding-body__description" v-html="finding.descriptionHtml" />
       <!-- eslint-disable-next-line vue/no-v-html -->
       <p v-if="finding.promptHtml" class="finding-body__prompt" v-html="finding.promptHtml" />
       <div class="finding-body__actions">
@@ -137,6 +144,36 @@ const footerIcon = computed(() =>
 .finding-body[data-skin='mobile'] .finding-body__prompt {
   font-size: var(--font-size-medium, 16px);
   line-height: var(--line-height-medium, 24px);
+}
+
+/* Lightbulb indicator: floats at the start of the first line so the text wraps around it. */
+.finding-body__indicator {
+  float: left;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--line-height-medium, 24px);
+  margin-inline-end: var(--spacing-50, 8px);
+  color: var(--color-icon-progressive, #36c);
+}
+
+.finding-body__indicator .cdx-icon {
+  color: inherit;
+}
+
+/* Desktop: the icon sits on a light blue circle. */
+.finding-body[data-skin='desktop'] .finding-body__indicator {
+  width: 20px;
+  height: 20px;
+  /* Centred on the first line. */
+  margin-block: calc((var(--line-height-medium, 24px) - 20px) / 2);
+  margin-inline-end: 6px;
+  border-radius: 50%;
+  background-color: var(--background-color-progressive-subtle, #f1f4fd);
+}
+
+.finding-body[data-skin='mobile'] .finding-body__indicator {
+  margin-inline-end: 4px;
 }
 
 .finding-body__description :deep(p) {
